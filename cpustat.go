@@ -124,23 +124,19 @@ func (m ByMax) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 func (m ByMax) Less(i, j int) bool {
-	maxI := maxList([]int64{
-		m[i].hist.utime.Max(),
-		m[i].hist.stime.Max(),
-		m[i].hist.cutime.Max(),
-		m[i].hist.cstime.Max(),
-		m[i].hist.delayacctBlkioTicks.Max(),
+	maxI := maxList([]float64{
+		m[i].hist.ustime.Mean(),
+		m[i].hist.custime.Mean(),
+		m[i].hist.delayacctBlkioTicks.Mean(),
 	})
-	maxJ := maxList([]int64{
-		m[j].hist.utime.Max(),
-		m[j].hist.stime.Max(),
-		m[j].hist.cutime.Max(),
-		m[j].hist.cstime.Max(),
-		m[j].hist.delayacctBlkioTicks.Max(),
+	maxJ := maxList([]float64{
+		m[j].hist.ustime.Mean(),
+		m[j].hist.custime.Mean(),
+		m[j].hist.delayacctBlkioTicks.Mean(),
 	})
 	return maxI > maxJ
 }
-func maxList(list []int64) int64 {
+func maxList(list []float64) float64 {
 	ret := list[0]
 	for i := 1; i < len(list); i++ {
 		if list[i] > ret {
@@ -171,8 +167,10 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 	scale := func(val float64) float64 {
 		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
 	}
-	scaleSum := func(val float64) float64 {
-		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 1000 * 100
+	scaleSum := func(val float64, count int64) float64 {
+		valSec := val / float64(*jiffy)
+		sampleSec := float64(*interval) * float64(count) / 1000.0 * float64(count)
+		return (valSec / sampleSec) * 1000
 	}
 	scaleSched := func(val float64) float64 {
 		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 100
@@ -224,37 +222,37 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 		sysSum.procsTotal,
 	)
 
-	fmt.Print("                comm     pid     p50     p95     max     usr     sys   ctime    slat    vrun    erun     rss  iowait thrd  sam\n")
+	fmt.Print("                comm     pid     min     max     usr     sys   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
 	for _, thisStat := range list {
 		hist := thisStat.hist
 		pid := thisStat.pid
-		var schedWait, schedVRun, schedExecRun string
+		var schedWait, nrSwitches, nrInvoluntarySwitches string
 		sched, ok := sumSched[pid]
 		if ok == true {
 			schedWait = trim(scaleSched(sched.waitSum), 7)
-			schedVRun = trim(scaleSched(sched.vruntime), 7)
-			schedExecRun = trim(scaleSched(sched.execRuntime), 7)
+			nrSwitches = fmt.Sprintf("%d", sched.nrSwitches)
+			nrInvoluntarySwitches = fmt.Sprintf("%d", sched.nrInvoluntarySwitches)
 		} else {
 			schedWait = "-"
-			schedVRun = "-"
-			schedExecRun = "-"
+			nrSwitches = "-"
+			nrInvoluntarySwitches = "-"
 		}
-		fmt.Printf("%20s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
+		sampleCount := hist.utime.TotalCount()
+		fmt.Printf("%20s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
 			sumStats[pid].comm,
 			pid,
-			trim(scale(float64(hist.utime.ValueAtQuantile(50)+hist.stime.ValueAtQuantile(50))), 7),
-			trim(scale(float64(hist.utime.ValueAtQuantile(95)+hist.stime.ValueAtQuantile(95))), 7),
-			trim(scale(float64(hist.utime.Max())), 7),
-			trim(scaleSum(float64(sumStats[pid].utime)), 7),
-			trim(scaleSum(float64(sumStats[pid].stime)), 7),
-			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime)), 7),
+			trim(scale(float64(hist.ustime.Min())), 7),
+			trim(scale(float64(hist.ustime.Max())), 7),
+			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
+			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
+			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime), sampleCount), 7),
 			schedWait,
-			schedVRun,
-			schedExecRun,
+			nrSwitches,
+			nrInvoluntarySwitches,
 			formatMem(sumStats[pid].rss),
-			trim(scaleSum(float64(sumStats[pid].delayacctBlkioTicks)), 7),
+			trim(scaleSum(float64(sumStats[pid].delayacctBlkioTicks), sampleCount), 7),
 			sumStats[pid].numThreads,
-			hist.utime.TotalCount(),
+			sampleCount,
 		)
 	}
 	fmt.Println()

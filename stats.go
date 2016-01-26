@@ -49,8 +49,10 @@ type procStatsHist struct {
 	cmajflt             *hdrhistogram.Histogram
 	utime               *hdrhistogram.Histogram
 	stime               *hdrhistogram.Histogram
+	ustime              *hdrhistogram.Histogram // utime + stime
 	cutime              *hdrhistogram.Histogram
 	cstime              *hdrhistogram.Histogram
+	custime             *hdrhistogram.Histogram // cutime + cstime
 	nice                *hdrhistogram.Histogram
 	delayacctBlkioTicks *hdrhistogram.Histogram
 	guestTime           *hdrhistogram.Histogram
@@ -190,13 +192,11 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			sum.delayacctBlkioTicks += (cur.delayacctBlkioTicks - prev.delayacctBlkioTicks)
 			sum.guestTime += (cur.guestTime - prev.guestTime)
 
-			if sum.comm == "(uber-metrics)" {
-				fmt.Println(sum.utime)
-			}
-
 			var hist *procStatsHist
 			if hist, ok = histMap[pid]; ok != true {
 				histMap[pid] = &procStatsHist{
+					hdrhistogram.New(histMin, histMax, histSigFigs),
+					hdrhistogram.New(histMin, histMax, histSigFigs),
 					hdrhistogram.New(histMin, histMax, histSigFigs),
 					hdrhistogram.New(histMin, histMax, histSigFigs),
 					hdrhistogram.New(histMin, histMax, histSigFigs),
@@ -216,10 +216,16 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			hist.cminflt.RecordValue(int64(cur.cminflt - prev.cminflt))
 			hist.majflt.RecordValue(int64(cur.majflt - prev.majflt))
 			hist.cmajflt.RecordValue(int64(cur.cmajflt - prev.cmajflt))
-			hist.utime.RecordValue(int64(cur.utime - prev.utime))
-			hist.stime.RecordValue(int64(cur.stime - prev.stime))
-			hist.cutime.RecordValue(int64(cur.cutime - prev.cutime))
-			hist.cstime.RecordValue(int64(cur.cstime - prev.cstime))
+			uDelta := int64(cur.utime - prev.utime)
+			sDelta := int64(cur.stime - prev.stime)
+			hist.utime.RecordValue(uDelta)
+			hist.stime.RecordValue(sDelta)
+			hist.ustime.RecordValue(uDelta + sDelta)
+			cuDelta := int64(cur.cutime - prev.cutime)
+			csDelta := int64(cur.cstime - prev.cstime)
+			hist.cutime.RecordValue(cuDelta)
+			hist.cstime.RecordValue(csDelta)
+			hist.custime.RecordValue(cuDelta + csDelta)
 			hist.delayacctBlkioTicks.RecordValue(int64(cur.delayacctBlkioTicks - prev.delayacctBlkioTicks))
 			hist.guestTime.RecordValue(int64(cur.guestTime - prev.guestTime))
 		}
