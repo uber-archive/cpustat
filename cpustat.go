@@ -169,8 +169,9 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 	}
 	scaleSum := func(val float64, count int64) float64 {
 		valSec := val / float64(*jiffy)
-		sampleSec := float64(*interval) * float64(count) / 1000.0 * float64(count)
-		return (valSec / sampleSec) * 1000
+		sampleSec := float64(*interval) * float64(count) / 1000.0
+		ret := (valSec / sampleSec) * 100
+		return ret
 	}
 	scaleSched := func(val float64) float64 {
 		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 100
