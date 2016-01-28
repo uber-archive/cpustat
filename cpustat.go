@@ -69,18 +69,27 @@ func main() {
 	var sysSum *systemStats
 	var sysHist *systemStatsHist
 
+	var t1, t2 time.Time
+
 	// run all scans one time to establish a baseline
 	pids := getPidList()
+
+	schedPrev = schedReaderPids(pids)
+	t1 = time.Now()
 	procPrev = statReader(pids)
 	sysPrev = statReaderGlobal()
-	schedPrev = schedReaderPids(pids)
 	sysSum = &systemStats{}
 	sysHist = &systemStatsHist{}
+	t2 = time.Now()
+
+	targetSleep := time.Duration(*interval) * time.Millisecond
+	adjustedSleep := targetSleep - t2.Sub(t1)
 
 	for {
 		for count := 0; count < *samples; count++ {
-			time.Sleep(time.Duration(*interval) * time.Millisecond)
+			time.Sleep(adjustedSleep)
 
+			t1 = time.Now()
 			pids = getPidList()
 
 			procCur = statReader(pids)
@@ -90,9 +99,18 @@ func main() {
 			sysCur = statReaderGlobal()
 			statsRecordGlobal(sysCur, sysPrev, sysSum, sysHist)
 			sysPrev = sysCur
+
+			t2 = time.Now()
+			adjustedSleep = targetSleep - t2.Sub(t1)
 		}
 
-		schedCur = schedReaderPids(pids)
+		topHist := sortList(procHist, *topN)
+		topPids := make(pidlist, *topN)
+		for i := 0; i < *topN; i++ {
+			topPids[i] = topHist[i].pid
+		}
+
+		schedCur = schedReaderPids(topPids)
 		schedRecord(schedCur, schedPrev, schedSum)
 		schedPrev = schedCur
 
@@ -101,6 +119,8 @@ func main() {
 		procSum = make(procStatsMap)
 		sysHist = &systemStatsHist{}
 		sysSum = &systemStats{}
+		t2 = time.Now()
+		adjustedSleep = targetSleep - t2.Sub(t1)
 	}
 }
 
@@ -146,6 +166,20 @@ func maxList(list []float64) float64 {
 	return ret
 }
 
+func sortList(histStats procStatsHistMap, limit int) []*sortHist {
+	var list []*sortHist
+
+	for pid, hist := range histStats {
+		list = append(list, &sortHist{pid, hist})
+	}
+	sort.Sort(ByMax(list))
+	if len(list) > limit {
+		list = list[:limit]
+	}
+
+	return list
+}
+
 func formatMem(num uint64) string {
 	letter := string("K")
 
@@ -177,15 +211,6 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 100
 	}
 
-	var list []*sortHist
-
-	for pid, hist := range histStats {
-		list = append(list, &sortHist{pid, hist})
-	}
-	sort.Sort(ByMax(list))
-	if len(list) > *topN {
-		list = list[:*topN]
-	}
 	fmt.Printf("usr:    %4s/%4s/%4s   sys:%4s/%4s/%4s  nice:%4s/%4s/%4s    idle:%4s/%4s/%4s\n",
 		trim(scale(float64(sysHist.usr.Min())), 4),
 		trim(scale(float64(sysHist.usr.Max())), 4),
@@ -222,6 +247,8 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 
 		sysSum.procsTotal,
 	)
+
+	list := sortList(histStats, *topN)
 
 	fmt.Print("                comm     pid     min     max     usr     sys   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
 	for _, thisStat := range list {
