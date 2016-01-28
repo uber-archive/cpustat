@@ -4,8 +4,6 @@
 //
 
 // TOOD - check for rollover
-// TODO - random large values sometimes, perhaps when we see a pid for the first time
-// TODO - pull in /proc/stat
 // TODO - pull in /proc/schedstat
 // TODO - check max field length for assumed present fields
 
