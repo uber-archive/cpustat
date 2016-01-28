@@ -4,7 +4,6 @@
 //
 
 // TOOD - check for rollover
-// TODO - pull in /proc/schedstat
 // TODO - check max field length for assumed present fields
 
 package main
