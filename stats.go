@@ -155,12 +155,24 @@ func statReader(pids pidlist) procStatsMap {
 	return cur
 }
 
-func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) {
+func safeSub(a, b uint64) uint64 {
+	if a < b {
+		return a
+	}
+	return a - b
+}
+
+func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) procStatsMap {
+	deltaMap := make(procStatsMap)
+
 	for pid, cur := range curMap {
 		if prev, ok := prevMap[pid]; ok == true {
 			if _, ok := sumMap[pid]; ok == false {
 				sumMap[pid] = &procStats{}
 			}
+			deltaMap[pid] = &procStats{}
+			delta := deltaMap[pid]
+
 			sum := sumMap[pid]
 			sum.pid = cur.pid
 			sum.comm = cur.comm
@@ -171,14 +183,22 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			sum.ttyNr = cur.ttyNr
 			sum.tpgid = cur.tpgid
 			sum.flags = cur.flags
-			sum.minflt += (cur.minflt - prev.minflt)
-			sum.cminflt += (cur.cminflt - prev.cminflt)
-			sum.majflt += (cur.majflt - prev.majflt)
-			sum.cmajflt += (cur.cmajflt - prev.cmajflt)
-			sum.utime += (cur.utime - prev.utime)
-			sum.stime += (cur.stime - prev.stime)
-			sum.cutime += (cur.cutime - prev.cutime)
-			sum.cstime += (cur.cstime - prev.cstime)
+			delta.minflt = safeSub(cur.minflt, prev.minflt)
+			sum.minflt += delta.minflt
+			delta.cminflt = safeSub(cur.cminflt, prev.cminflt)
+			sum.cminflt += delta.cminflt
+			delta.majflt = safeSub(cur.majflt, prev.majflt)
+			sum.majflt += delta.majflt
+			delta.cmajflt = safeSub(cur.cmajflt, prev.cmajflt)
+			sum.cmajflt += delta.cmajflt
+			delta.utime = safeSub(cur.utime, prev.utime)
+			sum.utime += delta.utime
+			delta.stime = safeSub(cur.stime, prev.stime)
+			sum.stime += delta.stime
+			delta.cutime = safeSub(cur.cutime, prev.cutime)
+			sum.cutime += delta.cutime
+			delta.cstime = safeSub(cur.cstime, prev.cstime)
+			sum.cstime += delta.cstime
 			sum.priority = cur.priority
 			sum.nice = cur.nice
 			sum.numThreads = cur.numThreads
@@ -189,8 +209,10 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			sum.processor = cur.processor
 			sum.rtPriority = cur.rtPriority
 			sum.policy = cur.policy
-			sum.delayacctBlkioTicks += (cur.delayacctBlkioTicks - prev.delayacctBlkioTicks)
-			sum.guestTime += (cur.guestTime - prev.guestTime)
+			delta.delayacctBlkioTicks = safeSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks)
+			sum.delayacctBlkioTicks += delta.delayacctBlkioTicks
+			delta.guestTime = safeSub(cur.guestTime, prev.guestTime)
+			sum.guestTime += delta.guestTime
 
 			var hist *procStatsHist
 			if hist, ok = histMap[pid]; ok != true {
@@ -212,24 +234,22 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 				}
 				hist = histMap[pid]
 			}
-			hist.minflt.RecordValue(int64(cur.minflt - prev.minflt))
-			hist.cminflt.RecordValue(int64(cur.cminflt - prev.cminflt))
-			hist.majflt.RecordValue(int64(cur.majflt - prev.majflt))
-			hist.cmajflt.RecordValue(int64(cur.cmajflt - prev.cmajflt))
-			uDelta := int64(cur.utime - prev.utime)
-			sDelta := int64(cur.stime - prev.stime)
-			hist.utime.RecordValue(uDelta)
-			hist.stime.RecordValue(sDelta)
-			hist.ustime.RecordValue(uDelta + sDelta)
-			cuDelta := int64(cur.cutime - prev.cutime)
-			csDelta := int64(cur.cstime - prev.cstime)
-			hist.cutime.RecordValue(cuDelta)
-			hist.cstime.RecordValue(csDelta)
-			hist.custime.RecordValue(cuDelta + csDelta)
-			hist.delayacctBlkioTicks.RecordValue(int64(cur.delayacctBlkioTicks - prev.delayacctBlkioTicks))
-			hist.guestTime.RecordValue(int64(cur.guestTime - prev.guestTime))
+			hist.minflt.RecordValue(int64(delta.minflt))
+			hist.cminflt.RecordValue(int64(delta.cminflt))
+			hist.majflt.RecordValue(int64(delta.majflt))
+			hist.cmajflt.RecordValue(int64(delta.cmajflt))
+			hist.utime.RecordValue(int64(delta.utime))
+			hist.stime.RecordValue(int64(delta.stime))
+			hist.ustime.RecordValue(int64(delta.utime + delta.stime))
+			hist.cutime.RecordValue(int64(delta.cutime))
+			hist.cstime.RecordValue(int64(delta.cstime))
+			hist.custime.RecordValue(int64(delta.cutime + delta.cstime))
+			hist.delayacctBlkioTicks.RecordValue(int64(delta.delayacctBlkioTicks))
+			hist.guestTime.RecordValue(int64(delta.guestTime))
 		}
 	}
+
+	return deltaMap
 }
 
 // from /proc/stat
@@ -306,19 +326,33 @@ func statReaderGlobal() *systemStats {
 	return &cur
 }
 
-func statsRecordGlobal(cur, prev, sum *systemStats, hist *systemStatsHist) {
-	sum.usr += (cur.usr - prev.usr)
-	sum.nice += (cur.nice - prev.nice)
-	sum.sys += (cur.sys - prev.sys)
-	sum.idle += (cur.idle - prev.idle)
-	sum.iowait += (cur.iowait - prev.iowait)
-	sum.irq += (cur.irq - prev.irq)
-	sum.softirq += (cur.softirq - prev.softirq)
-	sum.steal += (cur.steal - prev.steal)
-	sum.guest += (cur.guest - prev.guest)
-	sum.guestNice += (cur.guestNice - prev.guestNice)
-	sum.ctxt += (cur.ctxt - prev.ctxt)
-	sum.procsTotal += (cur.procsTotal - prev.procsTotal)
+func statsRecordGlobal(cur, prev, sum *systemStats, hist *systemStatsHist) *systemStats {
+	delta := &systemStats{}
+
+	delta.usr = (cur.usr - prev.usr)
+	sum.usr += delta.usr
+	delta.nice = (cur.nice - prev.nice)
+	sum.nice += delta.nice
+	delta.sys = (cur.sys - prev.sys)
+	sum.sys += delta.sys
+	delta.idle = (cur.idle - prev.idle)
+	sum.idle += delta.idle
+	delta.iowait = (cur.iowait - prev.iowait)
+	sum.iowait += delta.iowait
+	delta.irq = (cur.irq - prev.irq)
+	sum.irq += delta.irq
+	delta.softirq = (cur.softirq - prev.softirq)
+	sum.softirq += delta.softirq
+	delta.steal = (cur.steal - prev.steal)
+	sum.steal += delta.steal
+	delta.guest = (cur.guest - prev.guest)
+	sum.guest += delta.guest
+	delta.guestNice = (cur.guestNice - prev.guestNice)
+	sum.guestNice += delta.guestNice
+	delta.ctxt = (cur.ctxt - prev.ctxt)
+	sum.ctxt += delta.ctxt
+	delta.procsTotal = (cur.procsTotal - prev.procsTotal)
+	sum.procsTotal += delta.procsTotal
 	sum.procsRunning = cur.procsRunning
 	sum.procsBlocked = cur.procsBlocked
 
@@ -339,18 +373,20 @@ func statsRecordGlobal(cur, prev, sum *systemStats, hist *systemStatsHist) {
 		hist.procsBlocked = hdrhistogram.New(histMin, histMax, histSigFigs)
 	}
 
-	hist.usr.RecordValue(int64(cur.usr - prev.usr))
-	hist.nice.RecordValue(int64(cur.nice - prev.nice))
-	hist.sys.RecordValue(int64(cur.sys - prev.sys))
-	hist.idle.RecordValue(int64(cur.idle - prev.idle))
-	hist.iowait.RecordValue(int64(cur.iowait - prev.iowait))
-	hist.irq.RecordValue(int64(cur.irq - prev.irq))
-	hist.softirq.RecordValue(int64(cur.softirq - prev.softirq))
-	hist.steal.RecordValue(int64(cur.steal - prev.steal))
-	hist.guest.RecordValue(int64(cur.guest - prev.guest))
-	hist.guestNice.RecordValue(int64(cur.guestNice - prev.guestNice))
-	hist.ctxt.RecordValue(int64(cur.ctxt - prev.ctxt))
-	hist.procsTotal.RecordValue(int64(cur.procsTotal - prev.procsTotal))
+	hist.usr.RecordValue(int64(delta.usr))
+	hist.nice.RecordValue(int64(delta.nice))
+	hist.sys.RecordValue(int64(delta.sys))
+	hist.idle.RecordValue(int64(delta.idle))
+	hist.iowait.RecordValue(int64(delta.iowait))
+	hist.irq.RecordValue(int64(delta.irq))
+	hist.softirq.RecordValue(int64(delta.softirq))
+	hist.steal.RecordValue(int64(delta.steal))
+	hist.guest.RecordValue(int64(delta.guest))
+	hist.guestNice.RecordValue(int64(delta.guestNice))
+	hist.ctxt.RecordValue(int64(delta.ctxt))
+	hist.procsTotal.RecordValue(int64(delta.procsTotal))
 	hist.procsRunning.RecordValue(int64(cur.procsRunning))
 	hist.procsBlocked.RecordValue(int64(cur.procsBlocked))
+
+	return delta
 }

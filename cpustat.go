@@ -3,7 +3,8 @@
 // Maybe this will turn into something like prstat on Solaris
 //
 
-// TOOD - check for rollover
+// TOOD - check for rollover in sched
+// TODO - /proc/stat parser to handle embedded parens
 // TODO - check max field length for assumed present fields
 
 package main
@@ -29,6 +30,7 @@ func main() {
 	var topN = flag.Int("n", 10, "show top N processes")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var jiffy = flag.Int("jiffy", 100, "length of a jiffy")
+	var useTui = flag.Bool("t", false, "use fancy terminal mode")
 
 	flag.Parse()
 
@@ -42,15 +44,24 @@ func main() {
 		}
 	}
 
+	uiQuitChan := make(chan string)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 
 	go func() {
-		_ = <-sigChan
+		select {
+		case <-sigChan:
+			fmt.Fprintln(os.Stderr, "quitting on signal")
+		case msg := <-uiQuitChan:
+			fmt.Fprintln(os.Stderr, msg)
+		}
 		pprof.StopCPUProfile()
-		fmt.Fprintln(os.Stderr, "SIGINT, probably")
 		os.Exit(0)
 	}()
+
+	if *useTui {
+		go tuiInit(uiQuitChan)
+	}
 
 	procCur := make(procStatsMap)
 	procPrev := make(procStatsMap)
@@ -82,6 +93,7 @@ func main() {
 	targetSleep := time.Duration(*interval) * time.Millisecond
 	adjustedSleep := targetSleep - t2.Sub(t1)
 
+	topPids := make(pidlist, *topN)
 	for {
 		for count := 0; count < *samples; count++ {
 			time.Sleep(adjustedSleep)
@@ -90,19 +102,22 @@ func main() {
 			pids = getPidList()
 
 			procCur = statReader(pids)
-			statRecord(procCur, procPrev, procSum, procHist)
+			procDelta := statRecord(procCur, procPrev, procSum, procHist)
 			procPrev = procCur
 
 			sysCur = statReaderGlobal()
-			statsRecordGlobal(sysCur, sysPrev, sysSum, sysHist)
+			sysDelta := statsRecordGlobal(sysCur, sysPrev, sysSum, sysHist)
 			sysPrev = sysCur
+
+			if *useTui {
+				tuiGraphUpdate(sysDelta, procDelta, topPids)
+			}
 
 			t2 = time.Now()
 			adjustedSleep = targetSleep - t2.Sub(t1)
 		}
 
 		topHist := sortList(procHist, *topN)
-		topPids := make(pidlist, *topN)
 		for i := 0; i < *topN; i++ {
 			topPids[i] = topHist[i].pid
 		}
@@ -111,7 +126,11 @@ func main() {
 		schedRecord(schedCur, schedPrev, schedSum)
 		schedPrev = schedCur
 
-		dumpStats(procSum, procHist, sysSum, sysHist, schedSum, topN, jiffy, interval, samples)
+		if *useTui {
+			tuiListUpdate(procSum, procHist, sysHist, *topN)
+		} else {
+			dumpStats(procSum, procHist, sysSum, sysHist, schedSum, topN, jiffy, interval, samples)
+		}
 		procHist = make(procStatsHistMap)
 		procSum = make(procStatsMap)
 		sysHist = &systemStatsHist{}
@@ -142,14 +161,14 @@ func (m ByMax) Swap(i, j int) {
 }
 func (m ByMax) Less(i, j int) bool {
 	maxI := maxList([]float64{
-		m[i].hist.ustime.Mean(),
-		m[i].hist.custime.Mean(),
-		m[i].hist.delayacctBlkioTicks.Mean(),
+		float64(m[i].hist.ustime.Max()),
+		float64(m[i].hist.custime.Max()),
+		float64(m[i].hist.delayacctBlkioTicks.Max()),
 	})
 	maxJ := maxList([]float64{
-		m[j].hist.ustime.Mean(),
-		m[j].hist.custime.Mean(),
-		m[j].hist.delayacctBlkioTicks.Mean(),
+		float64(m[j].hist.ustime.Max()),
+		float64(m[j].hist.custime.Max()),
+		float64(m[j].hist.delayacctBlkioTicks.Max()),
 	})
 	return maxI > maxJ
 }
@@ -170,6 +189,7 @@ func sortList(histStats procStatsHistMap, limit int) []*sortHist {
 		list = append(list, &sortHist{pid, hist})
 	}
 	sort.Sort(ByMax(list))
+
 	if len(list) > limit {
 		list = list[:limit]
 	}
