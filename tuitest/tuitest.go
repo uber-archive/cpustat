@@ -18,7 +18,7 @@ func main() {
 	lc.Border = true
 	lc.Height = ui.TermHeight()
 	lc.YFloor = 0.0
-	lc.Mode = "dot"
+	lc.Mode = "braille"
 	lc.Data = data
 	lc.LineColor["usr"] = ui.ColorCyan
 

@@ -6,6 +6,11 @@
 // TOOD - check for rollover in sched
 // TODO - /proc/stat parser to handle embedded parens
 // TODO - check max field length for assumed present fields
+// TODO - tui fill out text area
+// TODO - tui y axis scale
+// TODO - tui x axis labels
+// TODO - tui consistent proc colors
+// TODO - tui proc labels
 
 package main
 
@@ -127,9 +132,9 @@ func main() {
 		schedPrev = schedCur
 
 		if *useTui {
-			tuiListUpdate(procSum, procHist, sysHist, *topN)
+			tuiListUpdate(topPids, procSum, procHist, sysHist)
 		} else {
-			dumpStats(procSum, procHist, sysSum, sysHist, schedSum, topN, jiffy, interval, samples)
+			dumpStats(topPids, procSum, procHist, sysSum, sysHist, schedSum, jiffy, interval, samples)
 		}
 		procHist = make(procStatsHistMap)
 		procSum = make(procStatsMap)
@@ -212,8 +217,8 @@ func formatMem(num uint64) string {
 	return fmt.Sprintf("%d%s", num, letter)
 }
 
-func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
-	sumSched schedStatsMap, topN, jiffy, interval, samples *int) {
+func dumpStats(list pidlist, sumStats procStatsMap, histStats procStatsHistMap, sysSum *systemStats,
+	sysHist *systemStatsHist, sumSched schedStatsMap, jiffy, interval, samples *int) {
 
 	scale := func(val float64) float64 {
 		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
@@ -265,12 +270,10 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 		sysSum.procsTotal,
 	)
 
-	list := sortList(histStats, *topN)
+	fmt.Print("                comm     pid     min     max     usr     sys    nice   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
+	for _, pid := range list {
+		hist := histStats[pid]
 
-	fmt.Print("                comm     pid     min     max     usr     sys   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
-	for _, thisStat := range list {
-		hist := thisStat.hist
-		pid := thisStat.pid
 		var schedWait, nrSwitches, nrInvoluntarySwitches string
 		sched, ok := sumSched[pid]
 		if ok == true {
@@ -283,13 +286,14 @@ func dumpStats(sumStats procStatsMap, histStats procStatsHistMap, sysSum *system
 			nrInvoluntarySwitches = "-"
 		}
 		sampleCount := hist.utime.TotalCount()
-		fmt.Printf("%20s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
+		fmt.Printf("%20s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
 			sumStats[pid].comm,
 			pid,
 			trim(scale(float64(hist.ustime.Min())), 7),
 			trim(scale(float64(hist.ustime.Max())), 7),
 			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
 			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
+			trim(float64(sumStats[pid].nice), 7),
 			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime), sampleCount), 7),
 			schedWait,
 			nrSwitches,
