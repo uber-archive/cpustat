@@ -4,7 +4,6 @@
 //
 
 // TOOD - check for rollover in sched
-// TODO - /proc/stat parser to handle embedded parens
 // TODO - check max field length for assumed present fields
 // TODO - tui fill out text area
 // TODO - tui y axis scale

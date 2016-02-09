@@ -88,6 +88,11 @@ func procPidStatSplit(line string) []string {
 				groupchar = close
 				inword = true
 				start = strpos
+				strpos = strings.LastIndex(line, ")") - 1
+				if strpos <= start { // if we can't parse this insane field, skip to the end
+					strpos = len(line)
+					inword = false
+				}
 			} else if line[strpos] != space {
 				groupchar = space
 				inword = true

@@ -10,6 +10,8 @@ func TestProcPidStatSplit(t *testing.T) {
 	l2 := "36101 ((sd-pam)) S 36099 36099 36099 0 -1 1077944640 27 0 0 0 0 0 0 0 20 0 1 0 319121869 56594432 984 18446744073709551615 1 1 0 0 0 0 0 4096 0 18446744073709551615 0 0 17 19 0 0 0 0 0 0 0 0 0 w x y z"
 	l3 := "36099 (systemd) S 1 36099 36099 0 -1 4202752 895 22 0 0 1 1 0 0 20 0 1 0 319121869 28123136 964 18446744073709551615 1 1 0 0 0 0 671173123 4096 0 18446744073709551615 0 0 17 2 0 0 0 0 0 0 0 0 0 0 0 0 0"
 	l4 := "17974 ([celeryd: celer) S 44582 44581 44581 0 -1 4202560 10130 0 0 0 59 13 0 0 20 0 3 0 317969348 965685248 19771 18446744073709551615 1 1 0 0 0 0 0 16781314 18949 18446744073709551615 0 0 17 2 0 0 0 0 0 0 0 0 0 0 0 0 0"
+	l5 := "17974 ([celeryd:) celer) S 44582 44581 44581 0 -1 4202560 10130 0 0 0 59 13 0 0 20 0 3 0 317969348 965685248 19771 18446744073709551615 1 1 0 0 0 0 0 16781314 18949 18446744073709551615 0 0 17 2 0 0 0 0 0 0 0 0 0 0 0 0 0"
+	l6 := "17974 ([celeryd: celer S 44582 44581 44581 0 -1 4202560 10130 0 0 0 59 13 0 0 20 0 3 0 317969348 965685248 19771 18446744073709551615 1 1 0 0 0 0 0 16781314 18949 18446744073709551615 0 0 17 2 0 0 0 0 0 0 0 0 0 0 0 0 0"
 
 	parts1 := procPidStatSplit(l1)
 	for i, part := range parts1 {
@@ -40,4 +42,24 @@ func TestProcPidStatSplit(t *testing.T) {
 		t.Error("l4 split returned incorrect field count", 52)
 	}
 
+	parts5 := procPidStatSplit(l5)
+	if len(parts5) != 52 {
+		t.Error("l5 split returned incorrect field count", 52)
+	}
+
+	parts6 := procPidStatSplit(l6)
+	if len(parts6) != 52 {
+		t.Error("l6 split returned incorrect field count", 52)
+	}
+	if parts6[0] != "17974" {
+		t.Error("field 0 should be 17974 but is", parts6[0])
+	}
+	if parts6[1] != "" {
+		t.Error("field 1 should be empty but is", parts6[1])
+	}
+	for i := 2; i <= 51; i++ {
+		if parts6[i] != "" {
+			t.Error("field ", i, "should be empty but is", parts6[i])
+		}
+	}
 }
