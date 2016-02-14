@@ -108,7 +108,7 @@ func procPidStatSplit(line string) []string {
 	return parts
 }
 
-func statReader(pids pidlist) procStatsMap {
+func statReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
 	cur := make(procStatsMap)
 
 	for _, pid := range pids {
@@ -118,12 +118,12 @@ func statReader(pids pidlist) procStatsMap {
 			continue
 		}
 
-		// this file should only be one line total
+		// this format of this file is insane because comm can have split chars in it
 		parts := procPidStatSplit(lines[0])
 
 		stat := procStats{
 			readUInt(parts[0]),  // pid
-			parts[1],            //comm
+			parts[1],            // comm
 			parts[2],            // state
 			readUInt(parts[3]),  // ppid
 			readInt(parts[4]),   // pgrp
@@ -156,6 +156,7 @@ func statReader(pids pidlist) procStatsMap {
 			readUInt(parts[43]), // cguest_time
 		}
 		cur[pid] = &stat
+		updateCmdline(cmdNames, pid, stat.comm)
 	}
 	return cur
 }

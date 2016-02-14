@@ -10,6 +10,7 @@
 // TODO - tui x axis labels
 // TODO - tui consistent proc colors
 // TODO - tui proc labels
+// TODO - tui top procs should not include ctime
 
 package main
 
@@ -27,6 +28,7 @@ import (
 const histMin = 0
 const histMax = 100000000
 const histSigFigs = 2
+const maxProcsToScan = 2048
 
 func main() {
 	var interval = flag.Int("i", 1000, "interval (ms) between measurements")
@@ -67,6 +69,8 @@ func main() {
 		go tuiInit(uiQuitChan)
 	}
 
+	cmdNames := make(cmdlineMap)
+
 	procCur := make(procStatsMap)
 	procPrev := make(procStatsMap)
 	procSum := make(procStatsMap)
@@ -84,11 +88,12 @@ func main() {
 	var t1, t2 time.Time
 
 	// run all scans one time to establish a baseline
-	pids := getPidList()
+	pids := make(pidlist, 0, maxProcsToScan)
+	getPidList(&pids)
 
 	schedPrev = schedReaderPids(pids)
 	t1 = time.Now()
-	procPrev = statReader(pids)
+	procPrev = statReader(pids, cmdNames)
 	sysPrev = statReaderGlobal()
 	sysSum = &systemStats{}
 	sysHist = &systemStatsHist{}
@@ -103,9 +108,9 @@ func main() {
 			time.Sleep(adjustedSleep)
 
 			t1 = time.Now()
-			pids = getPidList()
+			getPidList(&pids)
 
-			procCur = statReader(pids)
+			procCur = statReader(pids, cmdNames)
 			procDelta := statRecord(procCur, procPrev, procSum, procHist)
 			procPrev = procCur
 
@@ -133,7 +138,7 @@ func main() {
 		if *useTui {
 			tuiListUpdate(topPids, procSum, procHist, sysHist)
 		} else {
-			dumpStats(topPids, procSum, procHist, sysSum, sysHist, schedSum, jiffy, interval, samples)
+			dumpStats(cmdNames, topPids, procSum, procHist, sysSum, sysHist, schedSum, jiffy, interval, samples)
 		}
 		procHist = make(procStatsHistMap)
 		procSum = make(procStatsMap)
@@ -216,8 +221,8 @@ func formatMem(num uint64) string {
 	return fmt.Sprintf("%d%s", num, letter)
 }
 
-func dumpStats(list pidlist, sumStats procStatsMap, histStats procStatsHistMap, sysSum *systemStats,
-	sysHist *systemStatsHist, sumSched schedStatsMap, jiffy, interval, samples *int) {
+func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histStats procStatsHistMap,
+	sysSum *systemStats, sysHist *systemStatsHist, sumSched schedStatsMap, jiffy, interval, samples *int) {
 
 	scale := func(val float64) float64 {
 		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
@@ -269,7 +274,7 @@ func dumpStats(list pidlist, sumStats procStatsMap, histStats procStatsHistMap, 
 		sysSum.procsTotal,
 	)
 
-	fmt.Print("                comm     pid     min     max     usr     sys    nice   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
+	fmt.Print("                   comm     pid     min     max     usr     sys    nice   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
 	for _, pid := range list {
 		hist := histStats[pid]
 
@@ -285,8 +290,21 @@ func dumpStats(list pidlist, sumStats procStatsMap, histStats procStatsHistMap, 
 			nrInvoluntarySwitches = "-"
 		}
 		sampleCount := hist.utime.TotalCount()
-		fmt.Printf("%20s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
-			sumStats[pid].comm,
+		var friendlyName string
+		cmdName, ok := cmdNames[pid]
+		if ok == true && len(cmdName.friendly) > 0 {
+			friendlyName = cmdName.friendly
+		} else {
+			// This should not happen as long as the cmdline resolver works
+			fmt.Println("using comm for ", cmdName, pid)
+			friendlyName = sumStats[pid].comm
+		}
+		if len(friendlyName) > 23 {
+			friendlyName = friendlyName[:23]
+		}
+
+		fmt.Printf("%23s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
+			friendlyName,
 			pid,
 			trim(scale(float64(hist.ustime.Min())), 7),
 			trim(scale(float64(hist.ustime.Max())), 7),

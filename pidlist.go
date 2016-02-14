@@ -8,7 +8,7 @@ import (
 
 type pidlist []int
 
-func getPidList() pidlist {
+func getPidList(list *pidlist) {
 	var procDir *os.File
 	var procNames []string
 	var err error
@@ -16,20 +16,21 @@ func getPidList() pidlist {
 	if procDir, err = os.Open("/proc"); err != nil {
 		log.Fatal("Open dir /proc: ", err)
 	}
-	if procNames, err = procDir.Readdirnames(0); err != nil {
+	if procNames, err = procDir.Readdirnames(maxProcsToScan); err != nil {
 		log.Fatal("pidlist Readdirnames: ", err)
 	}
 
 	var pid int
-	list := make(pidlist, len(procNames))
 	i := 0
 	for _, fileName := range procNames {
 		if pid, err = strconv.Atoi(fileName); err != nil {
 			continue
 		}
-		list[i] = pid
+		if i >= len(*list) {
+			*list = append(*list, pid)
+		} else {
+			(*list)[i] = pid
+		}
 		i++
 	}
-
-	return list[:i]
 }
