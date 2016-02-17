@@ -3,14 +3,18 @@
 // Maybe this will turn into something like prstat on Solaris
 //
 
+// easy
 // TOOD - check for rollover in sched
 // TODO - check max field length for assumed present fields
 // TODO - tui fill out text area
-// TODO - tui y axis scale
-// TODO - tui x axis labels
-// TODO - tui consistent proc colors
-// TODO - tui proc labels
-// TODO - tui top procs should not include ctime
+// TODO - tui better colors
+// TODO - tui y axis labels should go back down after growing, either that
+//        or figure out where this giant values are coming from
+// TODO - use the actual time of each measurement not the expected time
+// TODO - move dumpStats into a separate file like termui is
+
+// hard
+// TODO - split into long running backend and multiple frontends
 
 package main
 
@@ -66,7 +70,7 @@ func main() {
 	}()
 
 	if *useTui {
-		go tuiInit(uiQuitChan)
+		go tuiInit(uiQuitChan, *interval)
 	}
 
 	cmdNames := make(cmdlineMap)
@@ -119,7 +123,7 @@ func main() {
 			sysPrev = sysCur
 
 			if *useTui {
-				tuiGraphUpdate(sysDelta, procDelta, topPids)
+				tuiGraphUpdate(sysDelta, procDelta, topPids, *jiffy, *interval)
 			}
 
 			t2 = time.Now()
@@ -136,7 +140,7 @@ func main() {
 		schedPrev = schedCur
 
 		if *useTui {
-			tuiListUpdate(topPids, procSum, procHist, sysHist)
+			tuiListUpdate(topPids, procSum, cmdNames, procHist, sysHist)
 		} else {
 			dumpStats(cmdNames, topPids, procSum, procHist, sysSum, sysHist, schedSum, jiffy, interval, samples)
 		}
@@ -171,12 +175,10 @@ func (m ByMax) Swap(i, j int) {
 func (m ByMax) Less(i, j int) bool {
 	maxI := maxList([]float64{
 		float64(m[i].hist.ustime.Max()),
-		float64(m[i].hist.custime.Max()),
 		float64(m[i].hist.delayacctBlkioTicks.Max()),
 	})
 	maxJ := maxList([]float64{
 		float64(m[j].hist.ustime.Max()),
-		float64(m[j].hist.custime.Max()),
 		float64(m[j].hist.delayacctBlkioTicks.Max()),
 	})
 	return maxI > maxJ
@@ -219,6 +221,16 @@ func formatMem(num uint64) string {
 		}
 	}
 	return fmt.Sprintf("%d%s", num, letter)
+}
+
+func formatNum(num uint64) string {
+	if num > 1000000 {
+		return fmt.Sprintf("%dM", num/1000000)
+	}
+	if num > 1000 {
+		return fmt.Sprintf("%dK", num/1000)
+	}
+	return fmt.Sprintf("%d", num)
 }
 
 func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histStats procStatsHistMap,
@@ -274,7 +286,7 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histSta
 		sysSum.procsTotal,
 	)
 
-	fmt.Print("                   comm     pid     min     max     usr     sys    nice   ctime    slat     ctx     icx     rss  iowait thrd  sam\n")
+	fmt.Print("                   comm     pid     min     max     usr     sys   nice   ctime    slat   ctx   icx   rss   iow  thrd  sam\n")
 	for _, pid := range list {
 		hist := histStats[pid]
 
@@ -282,8 +294,8 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histSta
 		sched, ok := sumSched[pid]
 		if ok == true {
 			schedWait = trim(scaleSched(sched.waitSum), 7)
-			nrSwitches = fmt.Sprintf("%d", sched.nrSwitches)
-			nrInvoluntarySwitches = fmt.Sprintf("%d", sched.nrInvoluntarySwitches)
+			nrSwitches = formatNum(sched.nrSwitches)
+			nrInvoluntarySwitches = formatNum(sched.nrInvoluntarySwitches)
 		} else {
 			schedWait = "-"
 			nrSwitches = "-"
@@ -303,14 +315,14 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histSta
 			friendlyName = friendlyName[:23]
 		}
 
-		fmt.Printf("%23s %7d %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %7s %4d %4d\n",
+		fmt.Printf("%23s %7d %7s %7s %7s %7s %6s %7s %7s %5s %5s %5s %5s %5d %4d\n",
 			friendlyName,
 			pid,
 			trim(scale(float64(hist.ustime.Min())), 7),
 			trim(scale(float64(hist.ustime.Max())), 7),
 			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
 			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
-			trim(float64(sumStats[pid].nice), 7),
+			trim(float64(sumStats[pid].nice), 6),
 			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime), sampleCount), 7),
 			schedWait,
 			nrSwitches,
