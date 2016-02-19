@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	ui "github.com/gizak/termui"
+	ui "github.com/uber-common/termui"
 )
 
 const chartBackingSize = 1024
@@ -60,8 +60,8 @@ func tuiInit(ch chan string, interval int) {
 
 	quitChan = ch
 
-	ui.DebugFilename = "tuidebug"
-	ui.Debug("cpustat termui starting...")
+	//	ui.DebugFilename = "tuidebug"
+	//	ui.Debug("cpustat termui starting...")
 
 	colorList = make([]ui.Attribute, 0)
 	for pos, colorStr := range colorValues {
