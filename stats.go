@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/codahale/hdrhistogram"
 )
 
 // nearly all of the values from /proc/[pid]/stat
 type procStats struct {
+	captureTime         time.Time
+	prevTime            time.Time
 	pid                 uint64
 	comm                string
 	state               string
@@ -62,6 +65,11 @@ type procStatsHist struct {
 type procStatsMap map[int]*procStats
 type procStatsHistMap map[int]*procStatsHist
 
+// you might think that we could split on space, but due to what can at best be called
+// a shortcoming of the /proc/pid/stat format, the comm field can have spaces, parens, etc.
+// and it is unescaped.
+// This is a big paranoid, because even many common tools like htop do not handle this case
+// well.
 func procPidStatSplit(line string) []string {
 	line = strings.TrimSpace(line)
 	parts := make([]string, 52)
@@ -108,6 +116,13 @@ func procPidStatSplit(line string) []string {
 	return parts
 }
 
+func stripSpecial(r rune) rune {
+	if r == '[' || r == ']' || r == '(' || r == ')' {
+		return -1
+	}
+	return r
+}
+
 func statReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
 	cur := make(procStatsMap)
 
@@ -122,8 +137,10 @@ func statReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
 		parts := procPidStatSplit(lines[0])
 
 		stat := procStats{
-			readUInt(parts[0]),  // pid
-			parts[1],            // comm
+			time.Now(), // this might be expensive. If so, can cache it. We only need 1ms resolution
+			time.Time{},
+			readUInt(parts[0]),                  // pid
+			strings.Map(stripSpecial, parts[1]), // comm
 			parts[2],            // state
 			readUInt(parts[3]),  // ppid
 			readInt(parts[4]),   // pgrp
@@ -161,6 +178,9 @@ func statReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
 	return cur
 }
 
+// crude protection against rollover. This will miss the last portion of the previous sample
+// before the overflow, but capturing that is complicated because of the various number types
+// involved and their inconsistent documentation.
 func safeSub(a, b uint64) uint64 {
 	if a < b {
 		return a
@@ -168,7 +188,18 @@ func safeSub(a, b uint64) uint64 {
 	return a - b
 }
 
-func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) procStatsMap {
+func safeSubFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return a - b
+}
+
+func scaledSub(cur, prev uint64, scale float64) uint64 {
+	return uint64((float64(safeSub(cur, prev)) * scale) + 0.5)
+}
+
+func statRecord(interval int, curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) procStatsMap {
 	deltaMap := make(procStatsMap)
 
 	for pid, cur := range curMap {
@@ -179,7 +210,13 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			deltaMap[pid] = &procStats{}
 			delta := deltaMap[pid]
 
+			delta.captureTime = cur.captureTime
+			delta.prevTime = prev.captureTime
+			duration := float64(delta.captureTime.Sub(delta.prevTime) / time.Millisecond)
+			scale := float64(interval) / duration
+
 			sum := sumMap[pid]
+			sum.captureTime = cur.captureTime
 			sum.pid = cur.pid
 			sum.comm = cur.comm
 			sum.state = cur.state
@@ -189,22 +226,22 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			sum.ttyNr = cur.ttyNr
 			sum.tpgid = cur.tpgid
 			sum.flags = cur.flags
-			delta.minflt = safeSub(cur.minflt, prev.minflt)
-			sum.minflt += delta.minflt
-			delta.cminflt = safeSub(cur.cminflt, prev.cminflt)
-			sum.cminflt += delta.cminflt
-			delta.majflt = safeSub(cur.majflt, prev.majflt)
-			sum.majflt += delta.majflt
-			delta.cmajflt = safeSub(cur.cmajflt, prev.cmajflt)
-			sum.cmajflt += delta.cmajflt
-			delta.utime = safeSub(cur.utime, prev.utime)
-			sum.utime += delta.utime
-			delta.stime = safeSub(cur.stime, prev.stime)
-			sum.stime += delta.stime
-			delta.cutime = safeSub(cur.cutime, prev.cutime)
-			sum.cutime += delta.cutime
-			delta.cstime = safeSub(cur.cstime, prev.cstime)
-			sum.cstime += delta.cstime
+			delta.minflt = scaledSub(cur.minflt, prev.minflt, scale)
+			sum.minflt += safeSub(cur.minflt, prev.minflt)
+			delta.cminflt = scaledSub(cur.cminflt, prev.cminflt, scale)
+			sum.cminflt += safeSub(cur.cminflt, prev.cminflt)
+			delta.majflt = scaledSub(cur.majflt, prev.majflt, scale)
+			sum.majflt += safeSub(cur.majflt, prev.majflt)
+			delta.cmajflt = scaledSub(cur.cmajflt, prev.cmajflt, scale)
+			sum.cmajflt += safeSub(cur.cmajflt, prev.cmajflt)
+			delta.utime = scaledSub(cur.utime, prev.utime, scale)
+			sum.utime += safeSub(cur.utime, prev.utime)
+			delta.stime = scaledSub(cur.stime, prev.stime, scale)
+			sum.stime += safeSub(cur.stime, prev.stime)
+			delta.cutime = scaledSub(cur.cutime, prev.cutime, scale)
+			sum.cutime += safeSub(cur.cutime, prev.cutime)
+			delta.cstime = scaledSub(cur.cstime, prev.cstime, scale)
+			sum.cstime += safeSub(cur.cstime, prev.cstime)
 			sum.priority = cur.priority
 			sum.nice = cur.nice
 			sum.numThreads = cur.numThreads
@@ -215,10 +252,10 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 			sum.processor = cur.processor
 			sum.rtPriority = cur.rtPriority
 			sum.policy = cur.policy
-			delta.delayacctBlkioTicks = safeSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks)
-			sum.delayacctBlkioTicks += delta.delayacctBlkioTicks
-			delta.guestTime = safeSub(cur.guestTime, prev.guestTime)
-			sum.guestTime += delta.guestTime
+			delta.delayacctBlkioTicks = scaledSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks, scale)
+			sum.delayacctBlkioTicks += safeSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks)
+			delta.guestTime = scaledSub(cur.guestTime, prev.guestTime, scale)
+			sum.guestTime += safeSub(cur.guestTime, prev.guestTime)
 
 			var hist *procStatsHist
 			if hist, ok = histMap[pid]; ok != true {
@@ -260,6 +297,8 @@ func statRecord(curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) 
 
 // from /proc/stat
 type systemStats struct {
+	captureTime  time.Time
+	prevTime     time.Time
 	usr          uint64
 	nice         uint64
 	sys          uint64
@@ -305,6 +344,9 @@ func statReaderGlobal() *systemStats {
 		parts := strings.Split(strings.TrimSpace(line), " ")
 		switch parts[0] {
 		case "cpu":
+			cur.captureTime = time.Now()
+			cur.prevTime = time.Time{}
+
 			parts = parts[1:] // global cpu line has an extra space for some human somewhere
 			cur.usr = readUInt(parts[1])
 			cur.nice = readUInt(parts[2])
@@ -332,33 +374,39 @@ func statReaderGlobal() *systemStats {
 	return &cur
 }
 
-func statsRecordGlobal(cur, prev, sum *systemStats, hist *systemStatsHist) *systemStats {
+func statsRecordGlobal(interval int, cur, prev, sum *systemStats, hist *systemStatsHist) *systemStats {
 	delta := &systemStats{}
 
-	delta.usr = (cur.usr - prev.usr)
-	sum.usr += delta.usr
-	delta.nice = (cur.nice - prev.nice)
-	sum.nice += delta.nice
-	delta.sys = (cur.sys - prev.sys)
-	sum.sys += delta.sys
-	delta.idle = (cur.idle - prev.idle)
-	sum.idle += delta.idle
-	delta.iowait = (cur.iowait - prev.iowait)
-	sum.iowait += delta.iowait
-	delta.irq = (cur.irq - prev.irq)
-	sum.irq += delta.irq
-	delta.softirq = (cur.softirq - prev.softirq)
-	sum.softirq += delta.softirq
-	delta.steal = (cur.steal - prev.steal)
-	sum.steal += delta.steal
-	delta.guest = (cur.guest - prev.guest)
-	sum.guest += delta.guest
-	delta.guestNice = (cur.guestNice - prev.guestNice)
-	sum.guestNice += delta.guestNice
-	delta.ctxt = (cur.ctxt - prev.ctxt)
-	sum.ctxt += delta.ctxt
-	delta.procsTotal = (cur.procsTotal - prev.procsTotal)
-	sum.procsTotal += delta.procsTotal
+	sum.captureTime = cur.captureTime
+	delta.captureTime = cur.captureTime
+	delta.prevTime = prev.captureTime
+	duration := float64(delta.captureTime.Sub(delta.prevTime) / time.Millisecond)
+	scale := float64(interval) / duration
+
+	delta.usr = scaledSub(cur.usr, prev.usr, scale)
+	sum.usr += safeSub(cur.usr, prev.usr)
+	delta.nice = scaledSub(cur.nice, prev.nice, scale)
+	sum.nice += safeSub(cur.nice, prev.nice)
+	delta.sys = scaledSub(cur.sys, prev.sys, scale)
+	sum.sys += safeSub(cur.sys, prev.sys)
+	delta.idle = scaledSub(cur.idle, prev.idle, scale)
+	sum.idle += safeSub(cur.idle, prev.idle)
+	delta.iowait = scaledSub(cur.iowait, prev.iowait, scale)
+	sum.iowait += safeSub(cur.iowait, prev.iowait)
+	delta.irq = scaledSub(cur.irq, prev.irq, scale)
+	sum.irq += safeSub(cur.irq, prev.irq)
+	delta.softirq = scaledSub(cur.softirq, prev.softirq, scale)
+	sum.softirq += safeSub(cur.softirq, prev.softirq)
+	delta.steal = scaledSub(cur.steal, prev.steal, scale)
+	sum.steal += safeSub(cur.steal, prev.steal)
+	delta.guest = scaledSub(cur.guest, prev.guest, scale)
+	sum.guest += safeSub(cur.guest, prev.guest)
+	delta.guestNice = scaledSub(cur.guestNice, prev.guestNice, scale)
+	sum.guestNice += safeSub(cur.guestNice, prev.guestNice)
+	delta.ctxt = scaledSub(cur.ctxt, prev.ctxt, scale)
+	sum.ctxt += safeSub(cur.ctxt, prev.ctxt)
+	delta.procsTotal = scaledSub(cur.procsTotal, prev.procsTotal, scale)
+	sum.procsTotal += safeSub(cur.procsTotal, prev.procsTotal)
 	sum.procsRunning = cur.procsRunning
 	sum.procsBlocked = cur.procsBlocked
 

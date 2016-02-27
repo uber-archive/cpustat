@@ -83,3 +83,10 @@ func trim(num float64, max int) string {
 	}
 	return str
 }
+
+func trunc(str string, length int) string {
+	if len(str) <= length {
+		return str
+	}
+	return str[:length]
+}

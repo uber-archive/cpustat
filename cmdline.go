@@ -66,6 +66,8 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 	default:
 		newCmdline.friendly = resolveDefault(newCmdline.parts, comm)
 	}
+
+	newCmdline.friendly = strings.Map(stripSpecial, newCmdline.friendly)
 }
 
 func resolveNode(parts []string) string {

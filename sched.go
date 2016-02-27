@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"log"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/codahale/hdrhistogram"
@@ -26,68 +23,27 @@ type schedStats struct {
 
 type schedStatsMap map[int]*schedStats
 
-// from pidlist, find all tasks, read and summarize their stats
-func schedReaderPids(pidlist pidlist) schedStatsMap {
+func schedReaderPids(pidlist pidlist, conn *NLConn) schedStatsMap {
 	ret := make(schedStatsMap)
 	for _, pid := range pidlist {
-		var taskDir *os.File
-		var taskNames []string
-		var err error
-
-		if taskDir, err = os.Open(fmt.Sprintf("/proc/%d/task", pid)); err != nil {
+		stats, err := lookupPid(conn, pid)
+		if err != nil {
 			continue
 		}
-		if taskNames, err = taskDir.Readdirnames(0); err != nil {
-			log.Fatal("Readdirnames: ", err)
-		}
-		var taskid int
+
 		pidSum := schedStats{}
-		for _, taskName := range taskNames {
-			// skip non-numbers that might happen to be in this dir
-			if taskid, err = strconv.Atoi(taskName); err != nil {
-				continue
-			}
-			lines, err := readFileLines(fmt.Sprintf("/proc/%d/task/%d/sched", pid, taskid))
-			// proc or thread could have exited between when we scanned the dir and now
-			if err != nil {
-				continue
-			}
-			for _, line := range lines[2:] {
-				parts := strings.Split(line, ":")
-				if len(parts) != 2 {
-					continue
-				}
-				parts[0] = strings.TrimSpace(parts[0])
-				parts[1] = strings.TrimSpace(parts[1])
-				switch parts[0] {
-				case "se.vruntime":
-					pidSum.vruntime += readFloat(parts[1])
-				case "se.sum_exec_runtime":
-					pidSum.execRuntime += readFloat(parts[1])
-				case "se.statistics.wait_sum":
-					pidSum.waitSum += readFloat(parts[1])
-				case "se.statistics.wait_count":
-					pidSum.waitSum += readFloat(parts[1])
-				case "se.statistics.iowait_sum":
-					pidSum.iowaitSum += readFloat(parts[1])
-				case "se.statistics.iowait_count":
-					pidSum.waitCount += readUInt(parts[1])
-				case "nr_switches":
-					pidSum.nrSwitches += readUInt(parts[1])
-				case "nr_voluntary_switches":
-					pidSum.nrVoluntarySwitches += readUInt(parts[1])
-				case "nr_involuntary_switches":
-					pidSum.nrInvoluntarySwitches += readUInt(parts[1])
-				case "clock-delta":
-					pidSum.clockDelta = readUInt(parts[1])
-				}
-			}
-			ret[pid] = &pidSum
-		}
+		pidSum.waitSum = float64(stats.CPUDelayTotal)
+		pidSum.waitCount = stats.CPUCount
+		pidSum.iowaitSum = float64(stats.BlkIODelayTotal)
+		pidSum.iowaitCount = stats.BlkIOCount
+		pidSum.nrVoluntarySwitches = stats.Nvcsw
+		pidSum.nrInvoluntarySwitches = stats.Nivcsw
+		ret[pid] = &pidSum
 	}
 	return ret
 }
 
+// this uses safeSub from stats.go
 func schedRecord(curMap, prevMap, sumMap schedStatsMap) {
 	for pid, cur := range curMap {
 		if prev, ok := prevMap[pid]; ok == true {
@@ -95,16 +51,16 @@ func schedRecord(curMap, prevMap, sumMap schedStatsMap) {
 				sumMap[pid] = &schedStats{}
 			}
 			sum := sumMap[pid]
-			sum.vruntime += (cur.vruntime - prev.vruntime)
-			sum.execRuntime += (cur.execRuntime - prev.execRuntime)
-			sum.waitSum += (cur.waitSum - prev.waitSum)
-			sum.waitCount += (cur.waitCount - prev.waitCount)
-			sum.iowaitSum += (cur.iowaitSum - prev.iowaitSum)
-			sum.iowaitCount += (cur.iowaitCount - prev.iowaitCount)
-			sum.nrSwitches += (cur.nrSwitches - prev.nrSwitches)
-			sum.nrVoluntarySwitches += (cur.nrVoluntarySwitches - prev.nrVoluntarySwitches)
-			sum.nrInvoluntarySwitches += (cur.nrInvoluntarySwitches - prev.nrInvoluntarySwitches)
-			sum.clockDelta += (cur.clockDelta - prev.clockDelta)
+			sum.vruntime += safeSubFloat(cur.vruntime, prev.vruntime)
+			sum.execRuntime += safeSubFloat(cur.execRuntime, prev.execRuntime)
+			sum.waitSum += safeSubFloat(cur.waitSum, prev.waitSum)
+			sum.waitCount += safeSub(cur.waitCount, prev.waitCount)
+			sum.iowaitSum += safeSubFloat(cur.iowaitSum, prev.iowaitSum)
+			sum.iowaitCount += safeSub(cur.iowaitCount, prev.iowaitCount)
+			sum.nrSwitches += safeSub(cur.nrSwitches, prev.nrSwitches)
+			sum.nrVoluntarySwitches += safeSub(cur.nrVoluntarySwitches, prev.nrVoluntarySwitches)
+			sum.nrInvoluntarySwitches += safeSub(cur.nrInvoluntarySwitches, prev.nrInvoluntarySwitches)
+			sum.clockDelta += safeSub(cur.clockDelta, prev.clockDelta)
 		}
 	}
 }
