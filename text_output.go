@@ -27,20 +27,19 @@ func formatNum(num uint64) string {
 	return fmt.Sprintf("%d", num)
 }
 
-func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histStats procStatsHistMap,
-	sysSum *systemStats, sysHist *systemStatsHist, sumSched schedStatsMap, jiffy, interval, samples *int) {
+func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, histStats taskStatsHistMap,
+	sysSum *systemStats, sysHist *systemStatsHist, jiffy, interval, samples *int) {
 
 	scale := func(val float64) float64 {
 		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
 	}
-	scaleSum := func(val float64, count int64) float64 {
-		valSec := val / float64(*jiffy)
-		sampleSec := float64(*interval) * float64(count) / 1000.0
-		ret := (valSec / sampleSec) * 100
-		return ret
+	scaleUs := func(val float64) float64 {
+		return val / 1000 / float64(*interval) * 100
 	}
-	scaleSched := func(val float64) float64 {
-		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 100
+	scaleSumUs := func(val float64, count int64) float64 {
+		valSec := val / 1000 / float64(*interval)
+		sampleSec := float64(*interval) * float64(count) / 1000.0
+		return (valSec / sampleSec) * 100
 	}
 
 	fmt.Printf("usr:    %4s/%4s/%4s   sys:%4s/%4s/%4s  nice:%4s/%4s/%4s    idle:%4s/%4s/%4s\n",
@@ -80,50 +79,24 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histSta
 		sysSum.procsTotal,
 	)
 
-	fmt.Print("                   comm     pid     min     max     usr     sys   nice   ctime    slat   ctx   icx   rss   iow  thrd  sam\n")
+	fmt.Print("                   comm     pid     min     max     usr     sys   nice     slat   ctx   icx   rss   iow  thrd  sam\n")
 	for _, pid := range list {
 		hist := histStats[pid]
 
-		var schedWait, nrSwitches, nrInvoluntarySwitches string
-		sched, ok := sumSched[pid]
-		if ok == true {
-			schedWait = trim(scaleSched(sched.waitSum), 7)
-			nrSwitches = formatNum(sched.nrSwitches)
-			nrInvoluntarySwitches = formatNum(sched.nrInvoluntarySwitches)
-		} else {
-			schedWait = "-"
-			nrSwitches = "-"
-			nrInvoluntarySwitches = "-"
-		}
-		sampleCount := hist.utime.TotalCount()
-		var friendlyName string
-		cmdName, ok := cmdNames[pid]
-		if ok == true && len(cmdName.friendly) > 0 {
-			friendlyName = cmdName.friendly
-		} else {
-			// This should not happen as long as the cmdline resolver works
-			fmt.Println("using comm for ", cmdName, pid)
-			friendlyName = sumStats[pid].comm
-		}
-		if len(friendlyName) > 23 {
-			friendlyName = friendlyName[:23]
-		}
+		sampleCount := hist.ustime.TotalCount()
 
-		fmt.Printf("%23s %7d %7s %7s %7s %7s %6s %7s %7s %5s %5s %5s %5s %5d %4d\n",
-			friendlyName,
+		fmt.Printf("%23s %7d %7s %7s %7s %7s %6s %7s %7s %5s %5s %5s %5s %4d\n",
+			trunc(cmdNames[pid].friendly, 23),
 			pid,
-			trim(scale(float64(hist.ustime.Min())), 7),
-			trim(scale(float64(hist.ustime.Max())), 7),
-			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
-			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
+			trim(scaleUs(float64(hist.ustime.Min())), 7),
+			trim(scaleUs(float64(hist.ustime.Max())), 7),
+			trim(scaleSumUs(float64(sumStats[pid].utime), sampleCount), 7),
+			trim(scaleSumUs(float64(sumStats[pid].stime), sampleCount), 7),
 			trim(float64(sumStats[pid].nice), 6),
-			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime), sampleCount), 7),
-			schedWait,
-			nrSwitches,
-			nrInvoluntarySwitches,
-			formatMem(sumStats[pid].rss),
-			trim(scaleSum(float64(sumStats[pid].delayacctBlkioTicks), sampleCount), 7),
-			sumStats[pid].numThreads,
+			trim(scaleSumUs(float64(sumStats[pid].blkiodelaytotal), sampleCount), 7),
+			trim(scaleSumUs(float64(sumStats[pid].nvcsw), sampleCount), 7),
+			trim(scaleSumUs(float64(sumStats[pid].nivcsw), sampleCount), 7),
+			formatMem(sumStats[pid].coremem),
 			sampleCount,
 		)
 	}

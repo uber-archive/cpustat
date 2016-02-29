@@ -57,6 +57,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"syscall"
+	"time"
 
 	netlink "github.com/remyoudompheng/go-netlink"
 	"github.com/remyoudompheng/go-netlink/genl"
@@ -74,49 +75,50 @@ func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
 }
 
 type taskStats struct {
-	TGid                  uint32 // copied from header, should be the same as AcPid
-	Version               uint16 // internal, probably 8
-	AcExitcode            uint32 // not used until we listen for events
-	AcFlag                uint8  // not sure
-	AcNice                uint8  // seems like it'd be obvious, but it isn't
-	CPUCount              uint64 // delay count waiting for CPU, while runnable
-	CPUDelayTotal         uint64 // delay time waiting for CPU, while runnable, in ns
-	BlkIOCount            uint64 // delay count waiting for disk
-	BlkIODelayTotal       uint64 // delay time waiting for disk
-	SwapinCount           uint64 // delay count waiting for swap
-	SwapinDelayTotal      uint64 // delay time waiting for swap
-	CPURunRealTotal       uint64 // probably the time spent running on CPU, in ns, perhaps adjusted for virt steal
-	CPURunVirtualTotal    uint64 // probably the time spent running on CPU, in ns
-	AcComm                string // common name, best to ignore this and use /proc/pid/cmdline
-	AcSched               uint8  // scheduling discipline, whatever that means
-	AcUid                 uint32 // user id
-	AcGid                 uint32 // group id
-	AcPid                 uint32 // process id, should be the same as TGid, maybe
-	AcPPid                uint32 // parent process id
-	AcBTime               uint32 // begin time since epoch
-	AcETime               uint64 // elapsed total time in us
-	AcUTime               uint64 // elapsed user time in us
-	AcSTime               uint64 // elapsed system time in us
-	AcMinflt              uint64 // major page fault count
-	AcMajflt              uint64 // minor page fault count
-	Coremem               uint64 // RSS in MBytes/usec
-	Virtmem               uint64 // VSZ in MBytes/usec
-	HiwaterRSS            uint64 // highest RSS in KB
-	HiwaterVM             uint64 // highest VSZ in KB
-	ReadChar              uint64 // total bytes read
-	WriteChar             uint64 // total bytes written
-	ReadSyscalls          uint64 // read system calls
-	WriteSyscalls         uint64 // write system calls
-	ReadBytes             uint64 // bytes read total
-	WriteBytes            uint64 // bytes written total
-	CancelledWriteBytes   uint64 // bytes of cancelled write IO, whatever that is
-	Nvcsw                 uint64 // voluntary context switches
-	Nivcsw                uint64 // involuntary context switches
-	AcUTimeScaled         uint64 // user time scaled by CPU frequency
-	AcSTimeScaled         uint64 // system time scaled by CPU frequency
-	CPUScaledRunRealTotal uint64 // total time scaled by CPU frequency
-	FreepagesCount        uint64 // delay count waiting for memory reclaim
-	FreepagesDelayTotal   uint64 // delay time waiting for memory reclaim in unknown units
+	captureTime           time.Time
+	prevTime              time.Time
+	version               uint16 // internal, probably 8
+	exitcode              uint32 // not used until we listen for events
+	flag                  uint8  // not sure
+	nice                  uint8  // seems like it'd be obvious, but it isn't
+	cpudelaycount         uint64 // delay count waiting for CPU, while runnable
+	cpudelaytotal         uint64 // delay time waiting for CPU, while runnable, in ns
+	blkiodelaycount       uint64 // delay count waiting for disk
+	blkiodelaytotal       uint64 // delay time waiting for disk
+	swapindelaycount      uint64 // delay count waiting for swap
+	swapindelaytotal      uint64 // delay time waiting for swap
+	cpurunrealtotal       uint64 // probably the time spent running on CPU, in ns, perhaps adjusted for virt steal
+	cpurunvirtualtotal    uint64 // probably the time spent running on CPU, in ns
+	comm                  string // common name, best to ignore this and use /proc/pid/cmdline
+	sched                 uint8  // scheduling discipline, whatever that means
+	uid                   uint32 // user id
+	gid                   uint32 // group id
+	pid                   uint32 // process id, should be the same as TGid, maybe
+	ppid                  uint32 // parent process id
+	btime                 uint32 // begin time since epoch
+	etime                 uint64 // elapsed total time in us
+	utime                 uint64 // elapsed user time in us
+	stime                 uint64 // elapsed system time in us
+	minflt                uint64 // major page fault count
+	majflt                uint64 // minor page fault count
+	coremem               uint64 // RSS in MBytes/usec
+	virtmem               uint64 // VSZ in MBytes/usec
+	hiwaterrss            uint64 // highest RSS in KB
+	hiwatervm             uint64 // highest VSZ in KB
+	readchar              uint64 // total bytes read
+	writechar             uint64 // total bytes written
+	readsyscalls          uint64 // read system calls
+	writesyscalls         uint64 // write system calls
+	readbytes             uint64 // bytes read total
+	writebytes            uint64 // bytes written total
+	cancelledwritebytes   uint64 // bytes of cancelled write IO, whatever that is
+	nvcsw                 uint64 // voluntary context switches
+	nivcsw                uint64 // involuntary context switches
+	utimescaled           uint64 // user time scaled by CPU frequency
+	stimescaled           uint64 // system time scaled by CPU frequency
+	cpuscaledrunrealtotal uint64 // total time scaled by CPU frequency
+	freepagescount        uint64 // delay count waiting for memory reclaim
+	freepagesdelaytotal   uint64 // delay time waiting for memory reclaim in unknown units
 }
 
 func stringFromBytes(c [32]C.char) string {
@@ -175,48 +177,51 @@ func parseResponse(msg syscall.NetlinkMessage) (*taskStats, error) {
 	//	fmt.Printf("stats: %+v\n", ts)
 
 	var stats taskStats
-	stats.TGid = tgid
-	stats.Version = uint16(ts.Version)
-	stats.AcExitcode = uint32(ts.Ac_exitcode)
-	stats.AcFlag = uint8(ts.Ac_flag)
-	stats.AcNice = uint8(ts.Ac_nice)
-	stats.CPUCount = uint64(ts.Cpu_count)
-	stats.CPUDelayTotal = uint64(ts.Cpu_delay_total)
-	stats.BlkIOCount = uint64(ts.Blkio_count)
-	stats.BlkIODelayTotal = uint64(ts.Blkio_delay_total)
-	stats.SwapinCount = uint64(ts.Swapin_count)
-	stats.SwapinDelayTotal = uint64(ts.Swapin_delay_total)
-	stats.CPURunRealTotal = uint64(ts.Cpu_run_real_total)
-	stats.CPURunVirtualTotal = uint64(ts.Cpu_run_virtual_total)
-	stats.AcComm = stringFromBytes(ts.Ac_comm)
-	stats.AcSched = uint8(ts.Ac_sched)
-	stats.AcUid = uint32(ts.Ac_uid)
-	stats.AcPid = uint32(ts.Ac_pid)
-	stats.AcPPid = uint32(ts.Ac_ppid)
-	stats.AcBTime = uint32(ts.Ac_btime)
-	stats.AcETime = uint64(ts.Ac_etime)
-	stats.AcUTime = uint64(ts.Ac_utime)
-	stats.AcSTime = uint64(ts.Ac_stime)
-	stats.AcMinflt = uint64(ts.Ac_minflt)
-	stats.AcMajflt = uint64(ts.Ac_majflt)
-	stats.Coremem = uint64(ts.Coremem)
-	stats.Virtmem = uint64(ts.Virtmem)
-	stats.HiwaterRSS = uint64(ts.Hiwater_rss)
-	stats.HiwaterVM = uint64(ts.Hiwater_vm)
-	stats.ReadChar = uint64(ts.Read_char)
-	stats.WriteChar = uint64(ts.Write_char)
-	stats.ReadSyscalls = uint64(ts.Read_syscalls)
-	stats.WriteSyscalls = uint64(ts.Write_syscalls)
-	stats.ReadBytes = uint64(ts.Read_bytes)
-	stats.WriteBytes = uint64(ts.Write_bytes)
-	stats.CancelledWriteBytes = uint64(ts.Cancelled_write_bytes)
-	stats.Nvcsw = uint64(ts.Nvcsw)
-	stats.Nivcsw = uint64(ts.Nivcsw)
-	stats.AcUTimeScaled = uint64(ts.Ac_utimescaled)
-	stats.AcSTimeScaled = uint64(ts.Ac_stimescaled)
-	stats.CPUScaledRunRealTotal = uint64(ts.Cpu_scaled_run_real_total)
-	stats.FreepagesCount = uint64(ts.Freepages_count)
-	stats.FreepagesDelayTotal = uint64(ts.Freepages_delay_total)
+	stats.captureTime = time.Now()
+	stats.version = uint16(ts.Version)
+	stats.exitcode = uint32(ts.Ac_exitcode)
+	stats.flag = uint8(ts.Ac_flag)
+	stats.nice = uint8(ts.Ac_nice)
+	stats.cpudelaycount = uint64(ts.Cpu_count)
+	stats.cpudelaytotal = uint64(ts.Cpu_delay_total)
+	stats.blkiodelaycount = uint64(ts.Blkio_count)
+	stats.blkiodelaytotal = uint64(ts.Blkio_delay_total)
+	stats.swapindelaycount = uint64(ts.Swapin_count)
+	stats.swapindelaytotal = uint64(ts.Swapin_delay_total)
+	stats.cpurunrealtotal = uint64(ts.Cpu_run_real_total)
+	stats.cpurunvirtualtotal = uint64(ts.Cpu_run_virtual_total)
+	stats.comm = stringFromBytes(ts.Ac_comm)
+	stats.sched = uint8(ts.Ac_sched)
+	stats.uid = uint32(ts.Ac_uid)
+	stats.pid = uint32(ts.Ac_pid)
+	if stats.pid != tgid {
+		panic("read value for unexpected pid")
+	}
+	stats.ppid = uint32(ts.Ac_ppid)
+	stats.btime = uint32(ts.Ac_btime)
+	stats.etime = uint64(ts.Ac_etime)
+	stats.utime = uint64(ts.Ac_utime)
+	stats.stime = uint64(ts.Ac_stime)
+	stats.minflt = uint64(ts.Ac_minflt)
+	stats.majflt = uint64(ts.Ac_majflt)
+	stats.coremem = uint64(ts.Coremem)
+	stats.virtmem = uint64(ts.Virtmem)
+	stats.hiwaterrss = uint64(ts.Hiwater_rss)
+	stats.hiwatervm = uint64(ts.Hiwater_vm)
+	stats.readchar = uint64(ts.Read_char)
+	stats.writechar = uint64(ts.Write_char)
+	stats.readsyscalls = uint64(ts.Read_syscalls)
+	stats.writesyscalls = uint64(ts.Write_syscalls)
+	stats.readbytes = uint64(ts.Read_bytes)
+	stats.writebytes = uint64(ts.Write_bytes)
+	stats.cancelledwritebytes = uint64(ts.Cancelled_write_bytes)
+	stats.nvcsw = uint64(ts.Nvcsw)
+	stats.nivcsw = uint64(ts.Nivcsw)
+	stats.utimescaled = uint64(ts.Ac_utimescaled)
+	stats.stimescaled = uint64(ts.Ac_stimescaled)
+	stats.cpuscaledrunrealtotal = uint64(ts.Cpu_scaled_run_real_total)
+	stats.freepagescount = uint64(ts.Freepages_count)
+	stats.freepagesdelaytotal = uint64(ts.Freepages_delay_total)
 
 	return &stats, nil
 }

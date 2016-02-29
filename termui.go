@@ -141,8 +141,8 @@ func tuiInit(ch chan string, interval int) {
 	ui.Loop()
 }
 
-func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, histStats procStatsHistMap,
-	sysSum *systemStats, sysHist *systemStatsHist, sumSched schedStatsMap, jiffy, interval, samples *int) {
+func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, histStats taskStatsHistMap,
+	sysSum *systemStats, sysHist *systemStatsHist, jiffy, interval, samples *int) {
 
 	// if something in here panics, the output goes to the screen, which conflicts with termbox mode.
 	// try to capture this and quit termbox before we print the crash.
@@ -161,9 +161,6 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, his
 		ret := (valSec / sampleSec) * 100
 		return ret
 	}
-	scaleSched := func(val float64) float64 {
-		return val / float64(*jiffy) / float64((*interval)*(*samples)) * 100
-	}
 
 	graphColors = make(map[string]ui.Attribute)
 	mainList.Items = make([]string, len(list)+1)
@@ -174,23 +171,12 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, his
 	for i, pid := range list {
 		hist := histStats[pid]
 
-		var schedWait, nrSwitches, nrInvoluntarySwitches string
-		sched, ok := sumSched[pid]
-		if ok == true {
-			schedWait = trim(scaleSched(sched.waitSum), 7)
-			nrSwitches = formatNum(sched.nrSwitches)
-			nrInvoluntarySwitches = formatNum(sched.nrInvoluntarySwitches)
-		} else {
-			schedWait = "-"
-			nrSwitches = "-"
-			nrInvoluntarySwitches = "-"
-		}
-		sampleCount := hist.utime.TotalCount()
+		sampleCount := hist.ustime.TotalCount()
 
 		strPid := fmt.Sprint(pid)
 		graphColors[strPid] = colorList[colorPos]
 
-		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %6s %7s %7s %5s %5s %5s %5s %5d %4d\n",
+		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %6s %5s %5s %5s %5s %4d\n",
 			trunc(cmdNames[pid].friendly, 28),
 			pid,
 			colorPos,
@@ -199,13 +185,10 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, his
 			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
 			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
 			trim(float64(sumStats[pid].nice), 6),
-			trim(scaleSum(float64(sumStats[pid].cutime+sumStats[pid].cstime), sampleCount), 7),
-			schedWait,
-			nrSwitches,
-			nrInvoluntarySwitches,
-			formatMem(sumStats[pid].rss),
-			trim(scaleSum(float64(sumStats[pid].delayacctBlkioTicks), sampleCount), 7),
-			sumStats[pid].numThreads,
+			trim(scaleSum(float64(sumStats[pid].blkiodelaytotal), sampleCount), 7),
+			trim(scaleSum(float64(sumStats[pid].nvcsw), sampleCount), 7),
+			trim(scaleSum(float64(sumStats[pid].nivcsw), sampleCount), 7),
+			formatMem(sumStats[pid].coremem),
 			sampleCount,
 		)
 
@@ -215,7 +198,7 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats procStatsMap, his
 	ui.Render(mainList)
 }
 
-func tuiGraphUpdate(sysDelta *systemStats, procDelta procStatsMap, topPids pidlist, jiffy, interval int) {
+func tuiGraphUpdate(sysDelta *systemStats, procDelta taskStatsMap, topPids pidlist, jiffy, interval int) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)

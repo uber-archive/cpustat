@@ -13,6 +13,13 @@ type cmdline struct {
 
 type cmdlineMap map[int]*cmdline
 
+func stripSpecial(r rune) rune {
+	if r == '[' || r == ']' || r == '(' || r == ')' {
+		return -1
+	}
+	return r
+}
+
 func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 	nullSep := []byte{0}
 	spaceSep := []byte{32}

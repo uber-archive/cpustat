@@ -9,170 +9,28 @@ import (
 	"github.com/codahale/hdrhistogram"
 )
 
-// nearly all of the values from /proc/[pid]/stat
-type procStats struct {
-	captureTime         time.Time
-	prevTime            time.Time
-	pid                 uint64
-	comm                string
-	state               string
-	ppid                uint64
-	pgrp                int64
-	session             int64
-	ttyNr               int64
-	tpgid               int64
-	flags               uint64
-	minflt              uint64
-	cminflt             uint64
-	majflt              uint64
-	cmajflt             uint64
-	utime               uint64
-	stime               uint64
-	cutime              uint64
-	cstime              uint64
-	priority            int64
-	nice                int64
-	numThreads          uint64
-	startTime           uint64
-	vsize               uint64
-	rss                 uint64
-	rsslim              uint64
-	processor           uint64
-	rtPriority          uint64
-	policy              uint64
-	delayacctBlkioTicks uint64
-	guestTime           uint64
-	cguestTime          uint64
+type taskStatsHist struct {
+	ustime *hdrhistogram.Histogram
+	iowait *hdrhistogram.Histogram
+	swap   *hdrhistogram.Histogram
 }
 
-type procStatsHist struct {
-	minflt              *hdrhistogram.Histogram
-	cminflt             *hdrhistogram.Histogram
-	majflt              *hdrhistogram.Histogram
-	cmajflt             *hdrhistogram.Histogram
-	utime               *hdrhistogram.Histogram
-	stime               *hdrhistogram.Histogram
-	ustime              *hdrhistogram.Histogram // utime + stime
-	cutime              *hdrhistogram.Histogram
-	cstime              *hdrhistogram.Histogram
-	custime             *hdrhistogram.Histogram // cutime + cstime
-	nice                *hdrhistogram.Histogram
-	delayacctBlkioTicks *hdrhistogram.Histogram
-	guestTime           *hdrhistogram.Histogram
-	cguestTime          *hdrhistogram.Histogram
-}
+type taskStatsMap map[int]*taskStats
+type taskStatsHistMap map[int]*taskStatsHist
 
-type procStatsMap map[int]*procStats
-type procStatsHistMap map[int]*procStatsHist
-
-// you might think that we could split on space, but due to what can at best be called
-// a shortcoming of the /proc/pid/stat format, the comm field can have spaces, parens, etc.
-// and it is unescaped.
-// This is a big paranoid, because even many common tools like htop do not handle this case
-// well.
-func procPidStatSplit(line string) []string {
-	line = strings.TrimSpace(line)
-	parts := make([]string, 52)
-
-	partnum := 0
-	strpos := 0
-	start := 0
-	inword := false
-	space := " "[0]
-	open := "("[0]
-	close := ")"[0]
-	groupchar := space
-
-	for ; strpos < len(line); strpos++ {
-		if inword {
-			if line[strpos] == space && (groupchar == space || line[strpos-1] == groupchar) {
-				parts[partnum] = line[start:strpos]
-				partnum++
-				start = strpos
-				inword = false
-			}
-		} else {
-			if line[strpos] == open {
-				groupchar = close
-				inword = true
-				start = strpos
-				strpos = strings.LastIndex(line, ")") - 1
-				if strpos <= start { // if we can't parse this insane field, skip to the end
-					strpos = len(line)
-					inword = false
-				}
-			} else if line[strpos] != space {
-				groupchar = space
-				inword = true
-				start = strpos
-			}
-		}
-	}
-
-	if inword {
-		parts[partnum] = line[start:strpos]
-	}
-
-	return parts
-}
-
-func stripSpecial(r rune) rune {
-	if r == '[' || r == ']' || r == '(' || r == ')' {
-		return -1
-	}
-	return r
-}
-
-func statReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
-	cur := make(procStatsMap)
+func statReader(conn *NLConn, pids pidlist, cmdNames cmdlineMap) taskStatsMap {
+	cur := make(taskStatsMap)
 
 	for _, pid := range pids {
-		lines, err := readFileLines(fmt.Sprintf("/proc/%d/stat", pid))
-		// pid could have exited between when we scanned the dir and now
+		stat, err := lookupPid(conn, pid)
 		if err != nil {
+			fmt.Println("skipping pid", pid, err)
 			continue
 		}
-
-		// this format of this file is insane because comm can have split chars in it
-		parts := procPidStatSplit(lines[0])
-
-		stat := procStats{
-			time.Now(), // this might be expensive. If so, can cache it. We only need 1ms resolution
-			time.Time{},
-			readUInt(parts[0]),                  // pid
-			strings.Map(stripSpecial, parts[1]), // comm
-			parts[2],            // state
-			readUInt(parts[3]),  // ppid
-			readInt(parts[4]),   // pgrp
-			readInt(parts[5]),   // session
-			readInt(parts[6]),   // tty_nr
-			readInt(parts[7]),   // tpgid
-			readUInt(parts[8]),  // flags
-			readUInt(parts[9]),  // minflt
-			readUInt(parts[10]), // cminflt
-			readUInt(parts[11]), // majflt
-			readUInt(parts[12]), // cmajflt
-			readUInt(parts[13]), // utime
-			readUInt(parts[14]), // stime
-			readUInt(parts[15]), // cutime
-			readUInt(parts[16]), // cstime
-			readInt(parts[17]),  // priority
-			readInt(parts[18]),  // nice
-			readUInt(parts[19]), // num_threads
-			// itrealvalue - not maintained
-			readUInt(parts[21]), // starttime
-			readUInt(parts[22]), // vsize
-			readUInt(parts[23]), // rss
-			readUInt(parts[24]), // rsslim
-			// bunch of stuff about memory addresses
-			readUInt(parts[38]), // processor
-			readUInt(parts[39]), // rt_priority
-			readUInt(parts[40]), // policy
-			readUInt(parts[41]), // delayacct_blkio_ticks
-			readUInt(parts[42]), // guest_time
-			readUInt(parts[43]), // cguest_time
+		if stat.comm == "cpustat" {
+			fmt.Printf("stat: %+v\n", stat)
 		}
-		cur[pid] = &stat
+		cur[pid] = stat
 		updateCmdline(cmdNames, pid, stat.comm)
 	}
 	return cur
@@ -199,15 +57,15 @@ func scaledSub(cur, prev uint64, scale float64) uint64 {
 	return uint64((float64(safeSub(cur, prev)) * scale) + 0.5)
 }
 
-func statRecord(interval int, curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) procStatsMap {
-	deltaMap := make(procStatsMap)
+func statRecord(interval int, curMap, prevMap, sumMap taskStatsMap, histMap taskStatsHistMap) taskStatsMap {
+	deltaMap := make(taskStatsMap)
 
 	for pid, cur := range curMap {
 		if prev, ok := prevMap[pid]; ok == true {
 			if _, ok := sumMap[pid]; ok == false {
-				sumMap[pid] = &procStats{}
+				sumMap[pid] = &taskStats{}
 			}
-			deltaMap[pid] = &procStats{}
+			deltaMap[pid] = &taskStats{}
 			delta := deltaMap[pid]
 
 			delta.captureTime = cur.captureTime
@@ -217,78 +75,91 @@ func statRecord(interval int, curMap, prevMap, sumMap procStatsMap, histMap proc
 
 			sum := sumMap[pid]
 			sum.captureTime = cur.captureTime
-			sum.pid = cur.pid
+
+			sum.version = cur.version
+			sum.exitcode = cur.exitcode
+			sum.flag = cur.flag
+			sum.nice = cur.nice
+			delta.cpudelaycount = scaledSub(cur.cpudelaycount, prev.cpudelaycount, scale)
+			sum.cpudelaycount += safeSub(cur.cpudelaycount, prev.cpudelaycount)
+			delta.cpudelaytotal = scaledSub(cur.cpudelaytotal, prev.cpudelaytotal, scale)
+			sum.cpudelaytotal += safeSub(cur.cpudelaytotal, prev.cpudelaytotal)
+			delta.blkiodelaycount = scaledSub(cur.blkiodelaycount, prev.blkiodelaycount, scale)
+			sum.blkiodelaycount += safeSub(cur.blkiodelaycount, prev.blkiodelaycount)
+			delta.blkiodelaytotal = scaledSub(cur.blkiodelaytotal, prev.blkiodelaytotal, scale)
+			sum.blkiodelaytotal += safeSub(cur.blkiodelaytotal, prev.blkiodelaytotal)
+			delta.swapindelaycount = scaledSub(cur.swapindelaycount, prev.swapindelaycount, scale)
+			sum.swapindelaycount += safeSub(cur.swapindelaycount, prev.swapindelaycount)
+			delta.swapindelaytotal = scaledSub(cur.swapindelaytotal, prev.swapindelaytotal, scale)
+			sum.swapindelaytotal += safeSub(cur.swapindelaytotal, prev.swapindelaytotal)
+			delta.cpurunrealtotal = scaledSub(cur.cpurunrealtotal, prev.cpurunrealtotal, scale)
+			sum.cpurunrealtotal += safeSub(cur.cpurunrealtotal, prev.cpurunrealtotal)
+			delta.cpurunvirtualtotal = scaledSub(cur.cpurunvirtualtotal, prev.cpurunvirtualtotal, scale)
+			sum.cpurunvirtualtotal += safeSub(cur.cpurunvirtualtotal, prev.cpurunvirtualtotal)
 			sum.comm = cur.comm
-			sum.state = cur.state
+			sum.sched = cur.sched
+			sum.uid = cur.uid
+			sum.gid = cur.gid
+			sum.pid = cur.pid
 			sum.ppid = cur.ppid
-			sum.pgrp = cur.pgrp
-			sum.session = cur.session
-			sum.ttyNr = cur.ttyNr
-			sum.tpgid = cur.tpgid
-			sum.flags = cur.flags
-			delta.minflt = scaledSub(cur.minflt, prev.minflt, scale)
-			sum.minflt += safeSub(cur.minflt, prev.minflt)
-			delta.cminflt = scaledSub(cur.cminflt, prev.cminflt, scale)
-			sum.cminflt += safeSub(cur.cminflt, prev.cminflt)
-			delta.majflt = scaledSub(cur.majflt, prev.majflt, scale)
-			sum.majflt += safeSub(cur.majflt, prev.majflt)
-			delta.cmajflt = scaledSub(cur.cmajflt, prev.cmajflt, scale)
-			sum.cmajflt += safeSub(cur.cmajflt, prev.cmajflt)
+			sum.btime = cur.btime
+			delta.etime = scaledSub(cur.etime, prev.etime, scale)
+			sum.etime += safeSub(cur.etime, prev.etime)
 			delta.utime = scaledSub(cur.utime, prev.utime, scale)
 			sum.utime += safeSub(cur.utime, prev.utime)
 			delta.stime = scaledSub(cur.stime, prev.stime, scale)
 			sum.stime += safeSub(cur.stime, prev.stime)
-			delta.cutime = scaledSub(cur.cutime, prev.cutime, scale)
-			sum.cutime += safeSub(cur.cutime, prev.cutime)
-			delta.cstime = scaledSub(cur.cstime, prev.cstime, scale)
-			sum.cstime += safeSub(cur.cstime, prev.cstime)
-			sum.priority = cur.priority
-			sum.nice = cur.nice
-			sum.numThreads = cur.numThreads
-			sum.startTime = cur.startTime
-			sum.vsize = cur.vsize
-			sum.rss = cur.rss
-			sum.rsslim = cur.rsslim
-			sum.processor = cur.processor
-			sum.rtPriority = cur.rtPriority
-			sum.policy = cur.policy
-			delta.delayacctBlkioTicks = scaledSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks, scale)
-			sum.delayacctBlkioTicks += safeSub(cur.delayacctBlkioTicks, prev.delayacctBlkioTicks)
-			delta.guestTime = scaledSub(cur.guestTime, prev.guestTime, scale)
-			sum.guestTime += safeSub(cur.guestTime, prev.guestTime)
+			delta.minflt = scaledSub(cur.minflt, prev.minflt, scale)
+			sum.minflt += safeSub(cur.minflt, prev.minflt)
+			delta.majflt = scaledSub(cur.majflt, prev.majflt, scale)
+			sum.majflt += safeSub(cur.majflt, prev.majflt)
+			delta.coremem = scaledSub(cur.coremem, prev.coremem, scale)
+			sum.coremem += safeSub(cur.coremem, prev.coremem)
+			delta.virtmem = scaledSub(cur.virtmem, prev.virtmem, scale)
+			sum.virtmem += safeSub(cur.virtmem, prev.virtmem)
+			sum.hiwaterrss = cur.hiwaterrss
+			sum.hiwatervm = cur.hiwatervm
+			delta.readchar = scaledSub(cur.readchar, prev.readchar, scale)
+			sum.readchar += safeSub(cur.readchar, prev.readchar)
+			delta.writechar = scaledSub(cur.writechar, prev.writechar, scale)
+			sum.writechar += safeSub(cur.writechar, prev.writechar)
+			delta.readsyscalls = scaledSub(cur.readsyscalls, prev.readsyscalls, scale)
+			sum.readsyscalls += safeSub(cur.readsyscalls, prev.readsyscalls)
+			delta.writesyscalls = scaledSub(cur.writesyscalls, prev.writesyscalls, scale)
+			sum.writesyscalls += safeSub(cur.writesyscalls, prev.writesyscalls)
+			delta.readbytes = scaledSub(cur.readbytes, prev.readbytes, scale)
+			sum.readbytes += safeSub(cur.readbytes, prev.readbytes)
+			delta.writebytes = scaledSub(cur.writebytes, prev.writebytes, scale)
+			sum.writebytes += safeSub(cur.writebytes, prev.writebytes)
+			delta.cancelledwritebytes = scaledSub(cur.cancelledwritebytes, prev.cancelledwritebytes, scale)
+			sum.cancelledwritebytes += safeSub(cur.cancelledwritebytes, prev.cancelledwritebytes)
+			delta.nvcsw = scaledSub(cur.nvcsw, prev.nvcsw, scale)
+			sum.nvcsw += safeSub(cur.nvcsw, prev.nvcsw)
+			delta.nivcsw = scaledSub(cur.nivcsw, prev.nivcsw, scale)
+			sum.nivcsw += safeSub(cur.nivcsw, prev.nivcsw)
+			delta.utimescaled = scaledSub(cur.utimescaled, prev.utimescaled, scale)
+			sum.utimescaled += safeSub(cur.utimescaled, prev.utimescaled)
+			delta.stimescaled = scaledSub(cur.stimescaled, prev.stimescaled, scale)
+			sum.stimescaled += safeSub(cur.stimescaled, prev.stimescaled)
+			delta.cpuscaledrunrealtotal = scaledSub(cur.cpuscaledrunrealtotal, prev.cpuscaledrunrealtotal, scale)
+			sum.cpuscaledrunrealtotal += safeSub(cur.cpuscaledrunrealtotal, prev.cpuscaledrunrealtotal)
+			delta.freepagescount = scaledSub(cur.freepagescount, prev.freepagescount, scale)
+			sum.freepagescount += safeSub(cur.freepagescount, prev.freepagescount)
+			delta.freepagesdelaytotal = scaledSub(cur.freepagesdelaytotal, prev.freepagesdelaytotal, scale)
+			sum.freepagesdelaytotal += safeSub(cur.freepagesdelaytotal, prev.freepagesdelaytotal)
 
-			var hist *procStatsHist
+			var hist *taskStatsHist
 			if hist, ok = histMap[pid]; ok != true {
-				histMap[pid] = &procStatsHist{
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
-					hdrhistogram.New(histMin, histMax, histSigFigs),
+				histMap[pid] = &taskStatsHist{
 					hdrhistogram.New(histMin, histMax, histSigFigs),
 					hdrhistogram.New(histMin, histMax, histSigFigs),
 					hdrhistogram.New(histMin, histMax, histSigFigs),
 				}
 				hist = histMap[pid]
 			}
-			hist.minflt.RecordValue(int64(delta.minflt))
-			hist.cminflt.RecordValue(int64(delta.cminflt))
-			hist.majflt.RecordValue(int64(delta.majflt))
-			hist.cmajflt.RecordValue(int64(delta.cmajflt))
-			hist.utime.RecordValue(int64(delta.utime))
-			hist.stime.RecordValue(int64(delta.stime))
 			hist.ustime.RecordValue(int64(delta.utime + delta.stime))
-			hist.cutime.RecordValue(int64(delta.cutime))
-			hist.cstime.RecordValue(int64(delta.cstime))
-			hist.custime.RecordValue(int64(delta.cutime + delta.cstime))
-			hist.delayacctBlkioTicks.RecordValue(int64(delta.delayacctBlkioTicks))
-			hist.guestTime.RecordValue(int64(delta.guestTime))
+			hist.iowait.RecordValue(int64(delta.blkiodelaytotal))
+			hist.swap.RecordValue(int64(delta.swapindelaytotal))
 		}
 	}
 

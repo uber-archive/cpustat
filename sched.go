@@ -7,64 +7,6 @@ import (
 	"github.com/codahale/hdrhistogram"
 )
 
-// scheduler stats by task/thread from /proc/[pid]/task/[tid]/sched
-type schedStats struct {
-	vruntime              float64
-	execRuntime           float64
-	waitSum               float64
-	waitCount             uint64
-	iowaitSum             float64
-	iowaitCount           uint64
-	nrSwitches            uint64
-	nrVoluntarySwitches   uint64
-	nrInvoluntarySwitches uint64
-	clockDelta            uint64
-}
-
-type schedStatsMap map[int]*schedStats
-
-func schedReaderPids(pidlist pidlist, conn *NLConn) schedStatsMap {
-	ret := make(schedStatsMap)
-	for _, pid := range pidlist {
-		stats, err := lookupPid(conn, pid)
-		if err != nil {
-			continue
-		}
-
-		pidSum := schedStats{}
-		pidSum.waitSum = float64(stats.CPUDelayTotal)
-		pidSum.waitCount = stats.CPUCount
-		pidSum.iowaitSum = float64(stats.BlkIODelayTotal)
-		pidSum.iowaitCount = stats.BlkIOCount
-		pidSum.nrVoluntarySwitches = stats.Nvcsw
-		pidSum.nrInvoluntarySwitches = stats.Nivcsw
-		ret[pid] = &pidSum
-	}
-	return ret
-}
-
-// this uses safeSub from stats.go
-func schedRecord(curMap, prevMap, sumMap schedStatsMap) {
-	for pid, cur := range curMap {
-		if prev, ok := prevMap[pid]; ok == true {
-			if _, ok := sumMap[pid]; ok == false {
-				sumMap[pid] = &schedStats{}
-			}
-			sum := sumMap[pid]
-			sum.vruntime += safeSubFloat(cur.vruntime, prev.vruntime)
-			sum.execRuntime += safeSubFloat(cur.execRuntime, prev.execRuntime)
-			sum.waitSum += safeSubFloat(cur.waitSum, prev.waitSum)
-			sum.waitCount += safeSub(cur.waitCount, prev.waitCount)
-			sum.iowaitSum += safeSubFloat(cur.iowaitSum, prev.iowaitSum)
-			sum.iowaitCount += safeSub(cur.iowaitCount, prev.iowaitCount)
-			sum.nrSwitches += safeSub(cur.nrSwitches, prev.nrSwitches)
-			sum.nrVoluntarySwitches += safeSub(cur.nrVoluntarySwitches, prev.nrVoluntarySwitches)
-			sum.nrInvoluntarySwitches += safeSub(cur.nrInvoluntarySwitches, prev.nrInvoluntarySwitches)
-			sum.clockDelta += safeSub(cur.clockDelta, prev.clockDelta)
-		}
-	}
-}
-
 // system-waitCount scheduler waitCount by CPU from /proc/schedstat
 type schedStatsCPU struct {
 	schedYieldCalls  uint64 // 1
