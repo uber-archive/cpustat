@@ -34,7 +34,7 @@ This program uses Linux taskstats, which requires root.
 Here are the command line flags:
 
 Flag | Description | Default
------|------------
+-----|-------------|--------
 -i | sample interval in milliseconds | 200
 -s | summarize after this many samples | 10
 -n | display top n processes | 10
