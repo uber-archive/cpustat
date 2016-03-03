@@ -21,6 +21,37 @@ Here are examples of both modes observing the same worklad:
 
 ![Demo](http://i.imgur.com/sf2QhVB.gif)
 
+## Installation
+
+```
+go get github.com/uber-common/cpustat
+```
+
+## Usage
+
+This program uses Linux taskstats, which requires root.
+
+Here are the command line flags:
+
+Flag | Description | Default
+-----|------------
+-i | sample interval in milliseconds | 200
+-s | summarize after this many samples | 10
+-n | display top n processes | 10
+-jiffy | set the Linux clock tick duration time in milliseconds | 100
+-t | use fancy termui mode | false
+-cpuprofile | write CPU pprof data to this file | none
+-memprofile | write memory pprof data to this file | none
+
+Example:
+
+```
+sudo cpustat -s=500 -s=10 -n=20
+```
+
+This will take a sample of all processes every 500ms and summarize this data after 10
+samples, which is every 5 seconds.
+
 ## Displayed Values
 
 In pure text mode, there are some system-wide summary metrics that come from /proc/stat:
@@ -107,6 +138,9 @@ netlink taskstats.
 cpustat itself can cause the very problems it was written to expose by doing a burst of
 work on a regular interval. It would be nicer to the underlying system to spread the work
 out evenly over the sampling interval instead of trying to do it all at once.
+
+The Linux netlink taskstats interface can only be used by root, which means this program
+must be run as root.
 
 In spite of these limitations, this tool has already been useful in understanding
 performance problems on production systems. I hope it's useful to you as well.
