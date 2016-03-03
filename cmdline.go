@@ -13,13 +13,6 @@ type cmdline struct {
 
 type cmdlineMap map[int]*cmdline
 
-func stripSpecial(r rune) rune {
-	if r == '[' || r == ']' || r == '(' || r == ')' {
-		return -1
-	}
-	return r
-}
-
 func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 	nullSep := []byte{0}
 	spaceSep := []byte{32}
@@ -45,6 +38,7 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 	}
 
 	parts := bytes.Split(raw, nullSep)
+	// when processes rewrite their argv, we often lose the nulls, split on space instead
 	if (len(parts) == 2 && len(parts[1]) == 0) || len(parts) == 1 {
 		parts = bytes.Split(parts[0], spaceSep)
 	}
@@ -70,11 +64,21 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 		newCmdline.friendly = resolveXargs(newCmdline.parts)
 	case "node0.10", "node":
 		newCmdline.friendly = resolveNode(newCmdline.parts)
+	case "uwsgi":
+		newCmdline.friendly = resolveUwsgi(newCmdline.parts)
 	default:
 		newCmdline.friendly = resolveDefault(newCmdline.parts, comm)
 	}
 
 	newCmdline.friendly = strings.Map(stripSpecial, newCmdline.friendly)
+}
+
+func resolveUwsgi(parts []string) string {
+	argParts := strings.Split(parts[len(parts)-1], "/")
+	if len(argParts) > 2 && strings.HasSuffix(argParts[len(argParts)-1], ".json") {
+		return argParts[len(argParts)-2]
+	}
+	return "uwsgi"
 }
 
 func resolveNode(parts []string) string {
@@ -97,7 +101,7 @@ func resolveXargs(parts []string) string {
 	argParts := strings.Split(parts[len(parts)-1], "/")
 	file := argParts[len(argParts)-1]
 	if len(file) > 1 {
-		return fmt.Sprintf("xargs %s, %s", parts[0], file)
+		return fmt.Sprintf("xargs %s", file)
 	}
 	return "xargs"
 }

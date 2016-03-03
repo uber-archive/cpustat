@@ -3,76 +3,19 @@ package main
 // #include <linux/netlink.h>
 // #include <linux/genetlink.h>
 // #include <linux/taskstats.h>
-/*
-struct taskstats2 {
-	__u16	Version;
-	__u32	Ac_exitcode;
-	__u8	Ac_flag;
-	__u8	Ac_nice;
-	__u64	Cpu_count __attribute__((aligned(8)));
-	__u64	Cpu_delay_total;
-	__u64	Blkio_count;
-	__u64	Blkio_delay_total;
-	__u64	Swapin_count;
-	__u64	Swapin_delay_total;
-	__u64	Cpu_run_real_total;
-	__u64	Cpu_run_virtual_total;
-	char	Ac_comm[TS_COMM_LEN];
-	__u8	Ac_sched __attribute__((aligned(8)));
-	__u8	Ac_pad[3];
-	__u32	Ac_uid __attribute__((aligned(8)));
-	__u32	Ac_gid;
-	__u32	Ac_pid;
-	__u32	Ac_ppid;
-	__u32	Ac_btime;
-	__u64	Ac_etime __attribute__((aligned(8)));
-	__u64	Ac_utime;
-	__u64	Ac_stime;
-	__u64	Ac_minflt;
-	__u64	Ac_majflt;
-	__u64	Coremem;
-	__u64	Virtmem;
-	__u64	Hiwater_rss;
-	__u64	Hiwater_vm;
-	__u64	Read_char;
-	__u64	Write_char;
-	__u64	Read_syscalls;
-	__u64	Write_syscalls;
-	__u64	Read_bytes;
-	__u64	Write_bytes;
-	__u64	Cancelled_write_bytes;
-	__u64  Nvcsw;
-	__u64  Nivcsw;
-	__u64	Ac_utimescaled;
-	__u64	Ac_stimescaled;
-	__u64	Cpu_scaled_run_real_total;
-	__u64	Freepages_count;
-	__u64	Freepages_delay_total;
-};
-*/
 import "C"
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"syscall"
 	"time"
 
 	netlink "github.com/remyoudompheng/go-netlink"
 	"github.com/remyoudompheng/go-netlink/genl"
 )
-
-func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
-	msg.Header.Type = family
-	msg.Header.Flags = syscall.NLM_F_REQUEST
-	msg.GenHeader.Command = genl.TASKSTATS_CMD_GET
-	msg.GenHeader.Version = genl.TASKSTATS_GENL_VERSION
-	buf := bytes.NewBuffer([]byte{})
-	netlink.PutAttribute(buf, genl.TASKSTATS_CMD_ATTR_PID, uint32(pid))
-	msg.Data = buf.Bytes()
-	return msg
-}
 
 type taskStats struct {
 	captureTime           time.Time
@@ -121,8 +64,7 @@ type taskStats struct {
 	freepagesdelaytotal   uint64 // delay time waiting for memory reclaim in unknown units
 }
 
-func stringFromBytes(c [32]C.char) string {
-	b := make([]byte, len(c))
+func stringFromBytes(c []byte) string {
 	nullPos := 0
 	i := 0
 	for ; i < len(c); i++ {
@@ -130,9 +72,8 @@ func stringFromBytes(c [32]C.char) string {
 			nullPos = i
 			break
 		}
-		b[i] = byte(c[i])
 	}
-	return string(b[:nullPos])
+	return string(c[:nullPos])
 }
 
 func parseResponse(msg syscall.NetlinkMessage) (*taskStats, error) {
@@ -167,61 +108,103 @@ func parseResponse(msg syscall.NetlinkMessage) (*taskStats, error) {
 		return nil, err
 	}
 
-	//	This is a version of struct taskstats with the first letters capitalized
-	var ts C.struct_taskstats2
-
-	err = binary.Read(buf, netlink.SystemEndianness, &ts)
-	if err != nil {
-		return nil, err
-	}
-	//	fmt.Printf("stats: %+v\n", ts)
-
+	payload := buf.Bytes()
+	offset := 0
+	endian := netlink.SystemEndianness
 	var stats taskStats
 	stats.captureTime = time.Now()
-	stats.version = uint16(ts.Version)
-	stats.exitcode = uint32(ts.Ac_exitcode)
-	stats.flag = uint8(ts.Ac_flag)
-	stats.nice = uint8(ts.Ac_nice)
-	stats.cpudelaycount = uint64(ts.Cpu_count)
-	stats.cpudelaytotal = uint64(ts.Cpu_delay_total)
-	stats.blkiodelaycount = uint64(ts.Blkio_count)
-	stats.blkiodelaytotal = uint64(ts.Blkio_delay_total)
-	stats.swapindelaycount = uint64(ts.Swapin_count)
-	stats.swapindelaytotal = uint64(ts.Swapin_delay_total)
-	stats.cpurunrealtotal = uint64(ts.Cpu_run_real_total)
-	stats.cpurunvirtualtotal = uint64(ts.Cpu_run_virtual_total)
-	stats.comm = stringFromBytes(ts.Ac_comm)
-	stats.sched = uint8(ts.Ac_sched)
-	stats.uid = uint32(ts.Ac_uid)
-	stats.pid = uint32(ts.Ac_pid)
+
+	stats.version = endian.Uint16(payload[offset : offset+2])
+	offset += 2
+	offset += 2 // 2 byte padding
+	stats.exitcode = endian.Uint32(payload[offset : offset+4])
+	offset += 4
+	stats.flag = uint8(payload[offset])
+	offset++
+	stats.nice = uint8(payload[offset])
+	offset++
+	offset += 6 // 6 byte padding
+	stats.cpudelaycount = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.cpudelaytotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.blkiodelaycount = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.blkiodelaytotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.swapindelaycount = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.swapindelaytotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.cpurunrealtotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.cpurunvirtualtotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.comm = stringFromBytes(payload[offset : offset+32])
+	offset += 32
+	stats.sched = payload[offset]
+	offset++
+	offset += 7 // 7 byte padding
+	stats.uid = endian.Uint32(payload[offset : offset+4])
+	offset += 4
+	stats.gid = endian.Uint32(payload[offset : offset+4])
+	offset += 4
+	stats.pid = endian.Uint32(payload[offset : offset+4])
+	offset += 4
+	stats.ppid = endian.Uint32(payload[offset : offset+4])
+	offset += 4
+	stats.btime = endian.Uint32(payload[offset : offset+4])
+	offset += 4
 	if stats.pid != tgid {
-		panic("read value for unexpected pid")
+		fmt.Printf("read value for unexpected pid %d != %d %+v\n", stats.pid, tgid, stats)
 	}
-	stats.ppid = uint32(ts.Ac_ppid)
-	stats.btime = uint32(ts.Ac_btime)
-	stats.etime = uint64(ts.Ac_etime)
-	stats.utime = uint64(ts.Ac_utime)
-	stats.stime = uint64(ts.Ac_stime)
-	stats.minflt = uint64(ts.Ac_minflt)
-	stats.majflt = uint64(ts.Ac_majflt)
-	stats.coremem = uint64(ts.Coremem)
-	stats.virtmem = uint64(ts.Virtmem)
-	stats.hiwaterrss = uint64(ts.Hiwater_rss)
-	stats.hiwatervm = uint64(ts.Hiwater_vm)
-	stats.readchar = uint64(ts.Read_char)
-	stats.writechar = uint64(ts.Write_char)
-	stats.readsyscalls = uint64(ts.Read_syscalls)
-	stats.writesyscalls = uint64(ts.Write_syscalls)
-	stats.readbytes = uint64(ts.Read_bytes)
-	stats.writebytes = uint64(ts.Write_bytes)
-	stats.cancelledwritebytes = uint64(ts.Cancelled_write_bytes)
-	stats.nvcsw = uint64(ts.Nvcsw)
-	stats.nivcsw = uint64(ts.Nivcsw)
-	stats.utimescaled = uint64(ts.Ac_utimescaled)
-	stats.stimescaled = uint64(ts.Ac_stimescaled)
-	stats.cpuscaledrunrealtotal = uint64(ts.Cpu_scaled_run_real_total)
-	stats.freepagescount = uint64(ts.Freepages_count)
-	stats.freepagesdelaytotal = uint64(ts.Freepages_delay_total)
+	offset += 4 // 4 byte padding
+	stats.etime = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.utime = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.stime = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.minflt = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.majflt = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.coremem = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.virtmem = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.hiwaterrss = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.hiwatervm = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.readchar = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.writechar = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.readsyscalls = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.writesyscalls = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.readbytes = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.writebytes = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.cancelledwritebytes = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.nvcsw = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.nivcsw = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.utimescaled = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.stimescaled = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.cpuscaledrunrealtotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.freepagescount = endian.Uint64(payload[offset : offset+8])
+	offset += 8
+	stats.freepagesdelaytotal = endian.Uint64(payload[offset : offset+8])
+	offset += 8
 
 	return &stats, nil
 }
@@ -261,10 +244,54 @@ func parseTaskStats(msg syscall.NetlinkMessage) (*taskStats, error) {
 	return parseResponse(msg)
 }
 
-func lookupPid(conn *NLConn, pid int) (*taskStats, error) {
-	msg := cmdMessage(conn.family, pid)
+var (
+	systemEndianness = binary.LittleEndian
+	globalSeq        = uint32(0)
+)
 
-	netlink.WriteMessage(conn.sock, &msg)
+func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
+	msg.Header.Type = family
+	msg.Header.Flags = syscall.NLM_F_REQUEST
+	msg.GenHeader.Command = genl.TASKSTATS_CMD_GET
+	msg.GenHeader.Version = genl.TASKSTATS_GENL_VERSION
+	buf := bytes.NewBuffer([]byte{})
+	netlink.PutAttribute(buf, genl.TASKSTATS_CMD_ATTR_PID, uint32(pid))
+	msg.Data = buf.Bytes()
+	return msg
+}
+
+func sendCmdMessage(conn *NLConn, pid int) error {
+	globalSeq++
+
+	// payload of this message is genl header + a single nl attribute
+	attrBuf := bytes.NewBuffer([]byte{})
+	netlink.PutAttribute(attrBuf, genl.TASKSTATS_CMD_ATTR_PID, uint32(pid))
+	attrBytes := attrBuf.Bytes()
+
+	msg := netlink.GenericNetlinkMessage{}
+	// this packet: is nl header(16) + genl header(4) + attribute(8) = 28
+	msg.Header.Len = uint32(syscall.NLMSG_HDRLEN + 4 + len(attrBytes))
+	msg.Header.Type = conn.family
+	msg.Header.Flags = syscall.NLM_F_REQUEST
+	msg.Header.Seq = globalSeq
+	msg.Header.Pid = uint32(conn.pid)
+	msg.GenHeader.Command = genl.TASKSTATS_CMD_GET
+	msg.GenHeader.Version = genl.TASKSTATS_GENL_VERSION
+	// don't set reserved because it's reserved
+
+	outBuf := bytes.NewBuffer([]byte{})
+	binary.Write(outBuf, systemEndianness, msg.Header)
+	binary.Write(outBuf, systemEndianness, msg.GenHeader)
+	outBuf.Write(attrBytes)
+
+	_, err := conn.sock.Write(outBuf.Bytes())
+	return err
+}
+
+func taskstatsLookupPid(conn *NLConn, pid int) (*taskStats, error) {
+	sendCmdMessage(conn, pid)
+	// cmd := cmdMessage(conn.family, pid)
+	//	netlink.WriteMessage(conn.sock, &cmd)
 	res, err := netlink.ReadMessage(conn.sock)
 	if err != nil {
 		panic(err)
@@ -287,6 +314,7 @@ func lookupPid(conn *NLConn, pid int) (*taskStats, error) {
 type NLConn struct {
 	family uint16
 	sock   *netlink.NetlinkConn
+	pid    int
 }
 
 // NLInit sets up a new taskstats netlink socket
@@ -303,5 +331,5 @@ func NLInit() *NLConn {
 		panic(err)
 	}
 
-	return &NLConn{family, sock}
+	return &NLConn{family, sock, os.Getpid()}
 }

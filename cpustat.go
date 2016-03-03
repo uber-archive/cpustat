@@ -7,11 +7,11 @@
 // TODO - use the actual time of each measurement not the expected time
 // TODO - tui use keyboard to highlight a proc to make it be on top
 // TODO - tui use exited procs if they are still in the topN
+// TODO - use netlink to watch for processes exiting
 
 // hard
+// TODO - use perf_events to watch for processes starting so we don't have to constantly scan
 // TODO - split into long running backend and multiple frontends
-
-// check /proc/pid/stats periodically for thread count and child process exit time
 
 package main
 
@@ -36,6 +36,7 @@ func main() {
 	var samples = flag.Int("s", 60, "sample counts to aggregate for output")
 	var topN = flag.Int("n", 10, "show top N processes")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
+	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 	var jiffy = flag.Int("jiffy", 100, "length of a jiffy")
 	var useTui = flag.Bool("t", false, "use fancy terminal mode")
 
@@ -63,6 +64,15 @@ func main() {
 			fmt.Fprintln(os.Stderr, msg)
 		}
 		pprof.StopCPUProfile()
+
+		if *memprofile != "" {
+			f, err := os.Create(*memprofile)
+			if err != nil {
+				log.Fatal(err)
+			}
+			pprof.WriteHeapProfile(f)
+			f.Close()
+		}
 		os.Exit(0)
 	}()
 
@@ -73,6 +83,11 @@ func main() {
 	}
 
 	cmdNames := make(cmdlineMap)
+
+	procCur := make(procStatsMap)
+	procPrev := make(procStatsMap)
+	procSum := make(procStatsMap)
+	procHist := make(procStatsHistMap)
 
 	taskCur := make(taskStatsMap)
 	taskPrev := make(taskStatsMap)
@@ -91,8 +106,9 @@ func main() {
 	getPidList(&pids)
 
 	t1 = time.Now()
-	taskPrev = statReader(nlConn, pids, cmdNames)
-	sysPrev = statReaderGlobal()
+	procPrev = procStatsReader(pids, cmdNames)
+	taskPrev = taskStatsReader(nlConn, pids, cmdNames)
+	sysPrev = systemStatsReader()
 	sysSum = &systemStats{}
 	sysHist = &systemStatsHist{}
 	t2 = time.Now()
@@ -108,32 +124,38 @@ func main() {
 			t1 = time.Now()
 			getPidList(&pids)
 
-			taskCur = statReader(nlConn, pids, cmdNames)
-			taskDelta := statRecord(*interval, taskCur, taskPrev, taskSum, taskHist)
+			procCur = procStatsReader(pids, cmdNames)
+			procDelta := procStatsRecord(*interval, procCur, procPrev, procSum, procHist)
+			procPrev = procCur
+
+			taskCur = taskStatsReader(nlConn, pids, cmdNames)
+			taskDelta := taskStatsRecord(*interval, taskCur, taskPrev, taskSum, taskHist)
 			taskPrev = taskCur
 
-			sysCur = statReaderGlobal()
-			sysDelta := statsRecordGlobal(*interval, sysCur, sysPrev, sysSum, sysHist)
+			sysCur = systemStatsReader()
+			sysDelta := systemStatsRecord(*interval, sysCur, sysPrev, sysSum, sysHist)
 			sysPrev = sysCur
 
 			if *useTui {
-				tuiGraphUpdate(sysDelta, taskDelta, topPids, *jiffy, *interval)
+				tuiGraphUpdate(procDelta, sysDelta, taskDelta, topPids, *jiffy, *interval)
 			}
 
 			t2 = time.Now()
 			adjustedSleep = targetSleep - t2.Sub(t1)
 		}
 
-		topHist := sortList(taskHist, *topN)
+		topHist := sortList(procHist, taskHist, *topN)
 		for i := 0; i < *topN; i++ {
 			topPids[i] = topHist[i].pid
 		}
 
 		if *useTui {
-			tuiListUpdate(cmdNames, topPids, taskSum, taskHist, sysSum, sysHist, jiffy, interval, samples)
+			tuiListUpdate(cmdNames, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		} else {
-			dumpStats(cmdNames, topPids, taskSum, taskHist, sysSum, sysHist, jiffy, interval, samples)
+			dumpStats(cmdNames, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		}
+		procHist = make(procStatsHistMap)
+		procSum = make(procStatsMap)
 		taskHist = make(taskStatsHistMap)
 		taskSum = make(taskStatsMap)
 		sysHist = &systemStatsHist{}
@@ -150,7 +172,8 @@ type bar struct {
 // Wrapper to sort histograms by max but remember which pid they are
 type sortHist struct {
 	pid  int
-	hist *taskStatsHist
+	proc *procStatsHist
+	task *taskStatsHist
 }
 
 // ByMax sorts stats by max usage
@@ -163,14 +186,33 @@ func (m ByMax) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 func (m ByMax) Less(i, j int) bool {
-	maxI := maxList([]float64{
-		float64(m[i].hist.ustime.Max()),
-		float64(m[i].hist.iowait.Max()),
-	})
-	maxJ := maxList([]float64{
-		float64(m[j].hist.ustime.Max()),
-		float64(m[j].hist.iowait.Max()),
-	})
+	var maxI, maxJ float64
+
+	if m[i].task == nil || m[j].task == nil {
+		maxI = maxList([]float64{
+			float64(m[i].proc.ustime.Max()),
+			float64(m[i].proc.cutime.Max()+m[i].proc.cstime.Max()) / 1000,
+		})
+		maxJ = maxList([]float64{
+			float64(m[j].proc.ustime.Max()),
+			float64(m[j].proc.cutime.Max()+m[j].proc.cstime.Max()) / 1000,
+		})
+	} else {
+		maxI = maxList([]float64{
+			float64(m[i].proc.ustime.Max()),
+			float64(m[i].proc.cutime.Max()+m[i].proc.cstime.Max()) / 100,
+			float64(m[i].task.cpudelay.Max()) / 1000 / 1000,
+			float64(m[i].task.iowait.Max()) / 1000 / 1000,
+			float64(m[i].task.swap.Max()) / 1000 / 1000,
+		})
+		maxJ = maxList([]float64{
+			float64(m[j].proc.ustime.Max()),
+			float64(m[j].proc.cutime.Max()+m[j].proc.cstime.Max()) / 100,
+			float64(m[j].task.cpudelay.Max()) / 1000 / 1000,
+			float64(m[j].task.iowait.Max()) / 1000 / 1000,
+			float64(m[j].task.swap.Max()) / 1000 / 1000,
+		})
+	}
 	return maxI > maxJ
 }
 func maxList(list []float64) float64 {
@@ -183,11 +225,12 @@ func maxList(list []float64) float64 {
 	return ret
 }
 
-func sortList(histStats taskStatsHistMap, limit int) []*sortHist {
+func sortList(procHist procStatsHistMap, taskHist taskStatsHistMap, limit int) []*sortHist {
 	var list []*sortHist
 
-	for pid, hist := range histStats {
-		list = append(list, &sortHist{pid, hist})
+	// let's hope that pid is in both sets, otherwise this will blow up
+	for pid, hist := range procHist {
+		list = append(list, &sortHist{pid, hist, taskHist[pid]})
 	}
 	sort.Sort(ByMax(list))
 

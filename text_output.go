@@ -6,7 +6,7 @@ func formatMem(num uint64) string {
 	letter := string("K")
 
 	num = num * 4
-	if num >= 10000 {
+	if num >= 1000 {
 		num = (num + 512) / 1024
 		letter = "M"
 		if num >= 10000 {
@@ -27,18 +27,51 @@ func formatNum(num uint64) string {
 	return fmt.Sprintf("%d", num)
 }
 
-func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, histStats taskStatsHistMap,
-	sysSum *systemStats, sysHist *systemStatsHist, jiffy, interval, samples *int) {
+func trim(num float64, max int) string {
+	var str string
+	if num >= 1000.0 {
+		str = fmt.Sprintf("%d", int(num+0.5))
+	} else {
+		str = fmt.Sprintf("%.1f", num)
+	}
+	if len(str) > max {
+		if str[max-1] == 46 { // ASCII .
+			return str[:max-1]
+		}
+		return str[:max]
+	}
+	if str == "0.0" {
+		return "0"
+	}
+	return str
+}
+
+func trunc(str string, length int) string {
+	if len(str) <= length {
+		return str
+	}
+	return str[:length]
+}
+
+func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist procStatsHistMap,
+	taskSum taskStatsMap, taskHist taskStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
+	jiffy, interval, samples int) {
 
 	scale := func(val float64) float64 {
-		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
+		return val / float64(jiffy) / float64(interval) * 1000 * 100
 	}
-	scaleUs := func(val float64) float64 {
-		return val / 1000 / float64(*interval) * 100
+	// scaleUs := func(val float64) float64 {
+	// 	return val / 1000 / float64(interval) * 100
+	// }
+	scaleSum := func(val float64, count int64) float64 {
+		valSec := val / float64(jiffy)
+		sampleSec := float64(interval) * float64(count) / 1000.0
+		ret := (valSec / sampleSec) * 100
+		return ret
 	}
 	scaleSumUs := func(val float64, count int64) float64 {
-		valSec := val / 1000 / float64(*interval)
-		sampleSec := float64(*interval) * float64(count) / 1000.0
+		valSec := val / 1000 / 1000 / float64(interval)
+		sampleSec := float64(interval) * float64(count) / 1000.0
 		return (valSec / sampleSec) * 100
 	}
 
@@ -79,26 +112,37 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, histSta
 		sysSum.procsTotal,
 	)
 
-	fmt.Print("                   comm     pid     min     max     usr     sys   nice     slat   ctx   icx   rss   iow  thrd  sam\n")
+	fmt.Print("                   comm     pid     min     max     usr     sys  nice    runq     iow    swap   ctx   icx   rss   ctime thrd  sam\n")
 	for _, pid := range list {
-		hist := histStats[pid]
+		sampleCount := procHist[pid].ustime.TotalCount()
 
-		sampleCount := hist.ustime.TotalCount()
+		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
-		fmt.Printf("%23s %7d %7s %7s %7s %7s %6s %7s %7s %5s %5s %5s %5s %4d\n",
+		if task, ok := taskSum[pid]; ok == true {
+			cpuDelay = trim(scaleSumUs(float64(task.cpudelaytotal), sampleCount), 7)
+			blockDelay = trim(scaleSumUs(float64(task.blkiodelaytotal), sampleCount), 7)
+			swapDelay = trim(scaleSumUs(float64(task.swapindelaytotal), sampleCount), 7)
+			nvcsw = formatNum(task.nvcsw)
+			nivcsw = formatNum(task.nivcsw)
+		}
+
+		fmt.Printf("%23s %7d %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d\n",
 			trunc(cmdNames[pid].friendly, 23),
 			pid,
-			trim(scaleUs(float64(hist.ustime.Min())), 7),
-			trim(scaleUs(float64(hist.ustime.Max())), 7),
-			trim(scaleSumUs(float64(sumStats[pid].utime), sampleCount), 7),
-			trim(scaleSumUs(float64(sumStats[pid].stime), sampleCount), 7),
-			trim(float64(sumStats[pid].nice), 6),
-			trim(scaleSumUs(float64(sumStats[pid].blkiodelaytotal), sampleCount), 7),
-			trim(scaleSumUs(float64(sumStats[pid].nvcsw), sampleCount), 7),
-			trim(scaleSumUs(float64(sumStats[pid].nivcsw), sampleCount), 7),
-			formatMem(sumStats[pid].coremem),
+			trim(scale(float64(procHist[pid].ustime.Min())), 7),
+			trim(scale(float64(procHist[pid].ustime.Max())), 7),
+			trim(scaleSum(float64(procSum[pid].utime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].stime), sampleCount), 7),
+			procSum[pid].nice,
+			cpuDelay,
+			blockDelay,
+			swapDelay,
+			nvcsw,
+			nivcsw,
+			formatMem(procSum[pid].rss),
+			trim(scaleSum(float64(procSum[pid].cutime+procSum[pid].cstime), sampleCount), 7),
+			procSum[pid].numThreads,
 			sampleCount,
 		)
 	}
-	fmt.Println()
 }

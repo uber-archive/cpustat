@@ -141,8 +141,10 @@ func tuiInit(ch chan string, interval int) {
 	ui.Loop()
 }
 
-func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, histStats taskStatsHistMap,
-	sysSum *systemStats, sysHist *systemStatsHist, jiffy, interval, samples *int) {
+// this is a lot of copy/paste from dumpStats. Would be good to refactor this to shrae.
+func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist procStatsHistMap,
+	taskSum taskStatsMap, taskHist taskStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
+	jiffy, interval, samples int) {
 
 	// if something in here panics, the output goes to the screen, which conflicts with termbox mode.
 	// try to capture this and quit termbox before we print the crash.
@@ -153,52 +155,69 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, sumStats taskStatsMap, his
 	}()
 
 	scale := func(val float64) float64 {
-		return val / float64(*jiffy) / float64(*interval) * 1000 * 100
+		return val / float64(jiffy) / float64(interval) * 1000 * 100
 	}
 	scaleSum := func(val float64, count int64) float64 {
-		valSec := val / float64(*jiffy)
-		sampleSec := float64(*interval) * float64(count) / 1000.0
+		valSec := val / float64(jiffy)
+		sampleSec := float64(interval) * float64(count) / 1000.0
 		ret := (valSec / sampleSec) * 100
 		return ret
+	}
+	scaleSumUs := func(val float64, count int64) float64 {
+		valSec := val / 1000 / 1000 / float64(interval)
+		sampleSec := float64(interval) * float64(count) / 1000.0
+		return (valSec / sampleSec) * 100
 	}
 
 	graphColors = make(map[string]ui.Attribute)
 	mainList.Items = make([]string, len(list)+1)
 	colorPos := 0
 
-	mainList.Items[0] = fmt.Sprint("                        comm     pid     min     max     usr     sys   nice   ctime    slat   ctx   icx   rss   iow  thrd  sam")
+	mainList.Items[0] = fmt.Sprint("                        comm     pid     min     max     usr     sys  nice    runq     iow    swap   ctx   icx   rss   ctime thrd  sam")
 
 	for i, pid := range list {
-		hist := histStats[pid]
+		sampleCount := procHist[pid].ustime.TotalCount()
 
-		sampleCount := hist.ustime.TotalCount()
+		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
+
+		if task, ok := taskSum[pid]; ok == true {
+			cpuDelay = trim(scaleSumUs(float64(task.cpudelaytotal), sampleCount), 7)
+			blockDelay = trim(scaleSumUs(float64(task.blkiodelaytotal), sampleCount), 7)
+			swapDelay = trim(scaleSumUs(float64(task.swapindelaytotal), sampleCount), 7)
+			nvcsw = formatNum(task.nvcsw)
+			nivcsw = formatNum(task.nivcsw)
+		}
 
 		strPid := fmt.Sprint(pid)
 		graphColors[strPid] = colorList[colorPos]
 
-		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %6s %5s %5s %5s %5s %4d\n",
+		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d",
 			trunc(cmdNames[pid].friendly, 28),
 			pid,
 			colorPos,
-			trim(scale(float64(hist.ustime.Min())), 7),
-			trim(scale(float64(hist.ustime.Max())), 7),
-			trim(scaleSum(float64(sumStats[pid].utime), sampleCount), 7),
-			trim(scaleSum(float64(sumStats[pid].stime), sampleCount), 7),
-			trim(float64(sumStats[pid].nice), 6),
-			trim(scaleSum(float64(sumStats[pid].blkiodelaytotal), sampleCount), 7),
-			trim(scaleSum(float64(sumStats[pid].nvcsw), sampleCount), 7),
-			trim(scaleSum(float64(sumStats[pid].nivcsw), sampleCount), 7),
-			formatMem(sumStats[pid].coremem),
+			trim(scale(float64(procHist[pid].ustime.Min())), 7),
+			trim(scale(float64(procHist[pid].ustime.Max())), 7),
+			trim(scaleSum(float64(procSum[pid].utime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].stime), sampleCount), 7),
+			procSum[pid].nice,
+			cpuDelay,
+			blockDelay,
+			swapDelay,
+			nvcsw,
+			nivcsw,
+			formatMem(procSum[pid].rss),
+			trim(scaleSum(float64(procSum[pid].cutime+procSum[pid].cstime), sampleCount), 7),
+			procSum[pid].numThreads,
 			sampleCount,
 		)
-
 		colorPos = (colorPos + 1) % len(colorList)
 	}
 
 	ui.Render(mainList)
 }
 
-func tuiGraphUpdate(sysDelta *systemStats, procDelta taskStatsMap, topPids pidlist, jiffy, interval int) {
+func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta taskStatsMap,
+	topPids pidlist, jiffy, interval int) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
