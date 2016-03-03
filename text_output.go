@@ -95,7 +95,7 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist
 		return (valSec / sampleSec) * 100
 	}
 
-	fmt.Printf("usr:    %4s/%4s/%4s   sys:%4s/%4s/%4s  nice:%4s/%4s/%4s    idle:%4s/%4s/%4s\n",
+	fmt.Printf("usr:    %4s/%4s/%4s   sys:%4s/%4s/%4s    nice:%4s/%4s/%4s  idle:%4s/%4s/%4s\n",
 		trim(scale(float64(sysHist.usr.Min())), 4),
 		trim(scale(float64(sysHist.usr.Max())), 4),
 		trim(scale(sysHist.usr.Mean()), 4),
@@ -112,14 +112,10 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist
 		trim(scale(float64(sysHist.idle.Max())), 4),
 		trim(scale(sysHist.idle.Mean()), 4),
 	)
-	fmt.Printf("iowait: %4s/%4s/%4s  ctxt:%4s/%4s/%4s  prun:%4s/%4s/%4s  pblock:%4s/%4s/%4s  pstart: %4d\n",
+	fmt.Printf("iowait: %4s/%4s/%4s  prun:%4s/%4s/%4s  pblock:%4s/%4s/%4s  pstart: %4d\n",
 		trim(scale(float64(sysHist.iowait.Min())), 4),
 		trim(scale(float64(sysHist.iowait.Max())), 4),
 		trim(scale(sysHist.iowait.Mean()), 4),
-
-		trim(scale(float64(sysHist.ctxt.Min())), 4),
-		trim(scale(float64(sysHist.ctxt.Max())), 4),
-		trim(scale(sysHist.ctxt.Mean()), 4),
 
 		trim(float64(sysHist.procsRunning.Min()), 4),
 		trim(float64(sysHist.procsRunning.Max()), 4),
