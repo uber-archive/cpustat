@@ -51,8 +51,8 @@ const histSigFigs = 2
 const maxProcsToScan = 2048
 
 func main() {
-	var interval = flag.Int("i", 1000, "interval (ms) between measurements")
-	var samples = flag.Int("s", 60, "sample counts to aggregate for output")
+	var interval = flag.Int("i", 200, "interval (ms) between measurements")
+	var samples = flag.Int("s", 10, "sample counts to aggregate for output")
 	var topN = flag.Int("n", 10, "show top N processes")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
