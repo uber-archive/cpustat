@@ -27,7 +27,6 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 
 	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil { // proc exited before we could check, or some other even worse problem
-		fmt.Println("updateCmdline readfile err", err)
 		newCmdline.friendly = comm
 		return
 	}
