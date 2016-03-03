@@ -15,7 +15,7 @@ min/max/average values for some metrics.
 There are two ways of displaying this data, a pure text list of the summary interval
 and a colorful scrolling dashboard of each sample.
 
-Here are examples of both modes observing the same worklad:
+Here are examples of both modes observing the same workload:
 
 ![Text Mode](http://imgur.com/vu4LrBD.gif)
 
@@ -67,7 +67,7 @@ prun | min/max/avg count of processes in a runnable state
 pblock | min/max/avg count of processes blocked on disk IO
 pstart | number of processes/threads started in this summary interval
 
-In fancy scrolling dashboard mode, the uniqe panes are as follows:
+In fancy scrolling dashboard mode, the unique panes are as follows:
 
 In the top right, labeled "total usr/sys time", the system-wide measurements for user time
 and system time are displayed. User time is cyan, and system time is red. The X axis is
