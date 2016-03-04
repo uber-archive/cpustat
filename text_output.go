@@ -80,9 +80,6 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist
 	scale := func(val float64) float64 {
 		return val / float64(jiffy) / float64(interval) * 1000 * 100
 	}
-	// scaleUs := func(val float64) float64 {
-	// 	return val / 1000 / float64(interval) * 100
-	// }
 	scaleSum := func(val float64, count int64) float64 {
 		valSec := val / float64(jiffy)
 		sampleSec := float64(interval) * float64(count) / 1000.0

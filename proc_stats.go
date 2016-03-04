@@ -79,10 +79,8 @@ type procStatsMap map[int]*procStats
 type procStatsHistMap map[int]*procStatsHist
 
 // you might think that we could split on space, but due to what can at best be called
-// a shortcoming of the /proc/pid/stat format, the comm field can have spaces, parens, etc.
-// and it is unescaped.
-// This is a big paranoid, because even many common tools like htop do not handle this case
-// well.
+// a shortcoming of the /proc/pid/stat format, the comm field can have unescaped spaces, parens, etc.
+// This may be a bit paranoid, because even many common tools like htop do not handle this case well.
 func procPidStatSplit(line string) []string {
 	line = strings.TrimSpace(line)
 	parts := make([]string, 52)
@@ -184,6 +182,7 @@ func procStatsReader(pids pidlist, cmdNames cmdlineMap) procStatsMap {
 	return cur
 }
 
+// compute the delta between this sample and the previous one.
 func procStatsRecord(interval int, curMap, prevMap, sumMap procStatsMap, histMap procStatsHistMap) procStatsMap {
 	deltaMap := make(procStatsMap)
 

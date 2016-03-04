@@ -18,6 +18,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// This package reads and caches the results from /proc/pid/cmdline.
+// It also perhaps surprisingly transforms these names into names that are more useful in
+// some environments. It would be nice if there was some way to let people extend these
+// rules based on how they run their programs.
+
 package main
 
 import (

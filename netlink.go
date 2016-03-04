@@ -18,6 +18,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+// Integration with go-netlink
+// Sending and receiving of taskstats messages is reimplemented here for performance reasons.
+// We use go-netlink to fetch the family id and set up the socket.
+
 package main
 
 // #include <linux/netlink.h>
@@ -84,6 +88,7 @@ type taskStats struct {
 	freepagesdelaytotal   uint64 // delay time waiting for memory reclaim in unknown units
 }
 
+// convert a byte slice of a null terminated C string into a Go string
 func stringFromBytes(c []byte) string {
 	nullPos := 0
 	i := 0
@@ -96,6 +101,8 @@ func stringFromBytes(c []byte) string {
 	return string(c[:nullPos])
 }
 
+// Because of reflection overhead, the main payload is not read into a big struct.
+// It'd probably also be faster to convert the header reading to use the same technique.
 func parseResponse(msg syscall.NetlinkMessage) (*taskStats, error) {
 	var err error
 
@@ -134,6 +141,7 @@ func parseResponse(msg syscall.NetlinkMessage) (*taskStats, error) {
 	var stats taskStats
 	stats.captureTime = time.Now()
 
+	// these offsets and padding will break if struct taskstats ever changes
 	stats.version = endian.Uint16(payload[offset : offset+2])
 	offset += 2
 	offset += 2 // 2 byte padding
@@ -269,6 +277,8 @@ var (
 	globalSeq        = uint32(0)
 )
 
+// go-netlink calls os.getpid for every message, which is another wasted system call.
+// This is roughly the same code except re-using the pid.
 func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
 	msg.Header.Type = family
 	msg.Header.Flags = syscall.NLM_F_REQUEST
@@ -280,6 +290,8 @@ func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
 	return msg
 }
 
+// go-netlink wrote and re-wrote the message, once for genl and again for nl.
+// This just writes it once.
 func sendCmdMessage(conn *NLConn, pid int) error {
 	globalSeq++
 
@@ -330,7 +342,6 @@ func taskstatsLookupPid(conn *NLConn, pid int) (*taskStats, error) {
 }
 
 // NLConn holds the context necessary to pass around to external callers
-// This family thing should really be encapsulated within netlink.NetlinkConn, but it isn't.
 type NLConn struct {
 	family uint16
 	sock   *netlink.NetlinkConn

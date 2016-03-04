@@ -161,7 +161,7 @@ func tuiInit(ch chan string, interval int) {
 	ui.Loop()
 }
 
-// this is a lot of copy/paste from dumpStats. Would be good to refactor this to shrae.
+// this is a lot of copy/paste from dumpStats. Would be good to refactor this to share.
 func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist procStatsHistMap,
 	taskSum taskStatsMap, taskHist taskStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
 	jiffy, interval, samples int) {

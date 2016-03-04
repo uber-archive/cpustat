@@ -28,8 +28,9 @@ import (
 
 type pidlist []int
 
-// we churn the pidlist constantly, so this is an optimization to reuse the underlying list every time
-// replace the new values in the old list, shrinking or growing as necessary
+// We churn the pidlist constantly, so this is an optimization to reuse the underlying list every time.
+// Replace the new values in the old list, shrinking or growing as necessary.
+// This saves a bit of GC.
 func getPidList(list *pidlist) {
 	var procDir *os.File
 	var procNames []string

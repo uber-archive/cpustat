@@ -45,10 +45,11 @@ import (
 	"time"
 )
 
+// these are for the histogram library which we don't really need anyway
 const histMin = 0
 const histMax = 100000000
 const histSigFigs = 2
-const maxProcsToScan = 2048
+const maxProcsToScan = 2048 // upper bound on proc table size
 
 func main() {
 	var interval = flag.Int("i", 200, "interval (ms) between measurements")
@@ -182,10 +183,6 @@ func main() {
 		t2 = time.Now()
 		adjustedSleep = targetSleep - t2.Sub(t1)
 	}
-}
-
-type bar struct {
-	baz int
 }
 
 // Wrapper to sort histograms by max but remember which pid they are

@@ -1,3 +1,23 @@
+// Copyright (c) 2016 Uber Technologies, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
 package main
 
 import (
@@ -32,7 +52,8 @@ func scaledSub(cur, prev uint64, scale float64) uint64 {
 // note that this is not thread safe
 var buf *bytes.Buffer
 
-// ReadSmallFile is like os.ReadFile but skips the stat
+// ReadSmallFile is like os.ReadFile but dangerously optimized for reading files from /proc.
+// The file is not statted first, and the same buffer is used every time.
 func ReadSmallFile(filename string) ([]byte, error) {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -50,6 +71,7 @@ func ReadSmallFile(filename string) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+// Read a small file and split on newline
 func readFileLines(filename string) ([]string, error) {
 	file, err := ReadSmallFile(filename)
 	if err != nil {
@@ -60,6 +82,7 @@ func readFileLines(filename string) ([]string, error) {
 	return strings.Split(fileStr, "\n"), nil
 }
 
+// pull a float64 out of a string
 func readFloat(str string) float64 {
 	val, err := strconv.ParseFloat(str, 64)
 	if err != nil {
@@ -69,6 +92,7 @@ func readFloat(str string) float64 {
 	return val
 }
 
+// pull a uint64 out of a string
 func readUInt(str string) uint64 {
 	val, err := strconv.ParseUint(str, 10, 64)
 	if err != nil {
@@ -77,6 +101,7 @@ func readUInt(str string) uint64 {
 	return val
 }
 
+// pull a int64 out of a string
 func readInt(str string) int64 {
 	val, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
@@ -85,6 +110,7 @@ func readInt(str string) int64 {
 	return val
 }
 
+// remove grouping characters that confuse the termui parser
 func stripSpecial(r rune) rune {
 	if r == '[' || r == ']' || r == '(' || r == ')' {
 		return -1
