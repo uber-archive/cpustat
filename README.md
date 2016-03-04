@@ -89,7 +89,8 @@ pid | Top level process id, sometimes referred to as "tgid" min | lowest sample 
 max | highest sample for combined user and system time for this pid, measured from /proc/pid/stat.
 usr | average user time for this pid over the summary period, measured from /proc/pid/stat. This should be similar to what "top" reports.
 sys | average system time for this pid over the summary period, measured from /proc/pid/stat. This should be similar to what "top" reports.
-nice | current "nice" value for this process, measured from /proc/pid/stat. Higher is "nicer". runq | time this process and all of its threads spent runnable but waiting to run, measured from taskstats via netlink. Scale is a percentage of a CPU.
+nice | current "nice" value for this process, measured from /proc/pid/stat. Higher is "nicer". 
+runq | time this process and all of its threads spent runnable but waiting to run, measured from taskstats via netlink. Scale is a percentage of a CPU.
 iow | time this process and all of its threads spent blocked by disk IO, measured from taskstats via netlink. Scale is a percentage of a CPU.
 swap | time this process and all of its threads spent waiting to be swapped in, measured from taskstats via netlink. Scale is a percentage of a CPU.
 ctx | number of voluntary context switches by this process and all of its threads, measured from taskstats via netlink.
