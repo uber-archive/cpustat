@@ -19,7 +19,7 @@ Here are examples of both modes observing the same workload:
 
 ![Text Mode](http://imgur.com/vu4LrBD.gif)
 
-![Demo](http://i.imgur.com/sf2QhVB.gif)
+![Demo](http://i.imgur.com/mbasDlZ.gif)
 
 ## Installation
 
