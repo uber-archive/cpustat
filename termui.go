@@ -27,22 +27,22 @@ import (
 	"strconv"
 	"strings"
 
-	ui "github.com/uber-common/termui"
+	"github.com/uber-common/termui"
 )
 
 const chartBackingSize = 1024
 
-var sysChart *ui.LineChart
-var procChart *ui.LineChart
-var mainList *ui.List
+var sysChart *termui.LineChart
+var procChart *termui.LineChart
+var mainList *termui.List
 var quitChan chan string
 
 var sysChartData = make(map[string][]float64)
 var procChartData = make(map[int][]float64)
 
 func tuiFatal(reason string) {
-	ui.StopLoop()
-	ui.Close()
+	termui.StopLoop()
+	termui.Close()
 	quitChan <- reason
 	close(quitChan)
 }
@@ -65,8 +65,8 @@ var colorValues = []string{
 	"#33a02c",
 	"#b2df8a",
 }
-var colorList []ui.Attribute
-var graphColors map[string]ui.Attribute
+var colorList []termui.Attribute
+var graphColors map[string]termui.Attribute
 var dataLabels []string
 
 func tuiInit(ch chan string, interval int) {
@@ -80,17 +80,17 @@ func tuiInit(ch chan string, interval int) {
 
 	quitChan = ch
 
-	//	ui.DebugFilename = "tuidebug"
-	//	ui.Debug("cpustat termui starting...")
+	//	termui.DebugFilename = "tuidebug"
+	//	termui.Debug("cpustat termui starting...")
 
-	colorList = make([]ui.Attribute, 0)
+	colorList = make([]termui.Attribute, 0)
 	for pos, colorStr := range colorValues {
 		r, _ := strconv.ParseUint(colorStr[1:3], 16, 8)
 		g, _ := strconv.ParseUint(colorStr[3:5], 16, 8)
 		b, _ := strconv.ParseUint(colorStr[5:7], 16, 8)
-		newAttr := ui.ColorRGB24(int(r), int(g), int(b))
+		newAttr := termui.ColorRGB24(int(r), int(g), int(b)) | termui.AttrBold
 		colorList = append(colorList, newAttr)
-		ui.AddColorMap(fmt.Sprintf("color%d", pos), newAttr)
+		termui.AddColorMap(fmt.Sprintf("color%d", pos), newAttr)
 	}
 
 	dataLabels = make([]string, 1024)
@@ -106,59 +106,59 @@ func tuiInit(ch chan string, interval int) {
 	sysChartData["usr"] = make([]float64, 0, chartBackingSize)
 	sysChartData["sys"] = make([]float64, 0, chartBackingSize)
 
-	if err := ui.Init(); err != nil {
+	if err := termui.Init(); err != nil {
 		panic(err)
 	}
-	ui.SetOutputMode(ui.Output256)
+	termui.SetOutputMode(termui.Output256)
 
-	sysChart = ui.NewLineChart()
+	sysChart = termui.NewLineChart()
 	sysChart.Name = "sysChart"
 	sysChart.Border = false
 	sysChart.BorderLabel = "        total usr/sys time" // label with no border is odd, use manual padding
-	sysChart.Height = ui.TermHeight() / 2
+	sysChart.Height = termui.TermHeight() / 2
 	sysChart.YFloor = 0.0
-	sysChart.LineColor["usr"] = ui.ColorCyan
-	sysChart.LineColor["sys"] = ui.ColorRed
+	sysChart.LineColor["usr"] = termui.ColorCyan | termui.AttrBold
+	sysChart.LineColor["sys"] = termui.ColorRed | termui.AttrBold
 
-	procChart = ui.NewLineChart()
+	procChart = termui.NewLineChart()
 	procChart.Name = "procChart"
 	procChart.Border = false
 	procChart.BorderLabel = "       top procs"
-	procChart.Height = ui.TermHeight() / 2
+	procChart.Height = termui.TermHeight() / 2
 	procChart.YFloor = 0.0
 
-	mainList = ui.NewList()
+	mainList = termui.NewList()
 	mainList.Border = false
 	mainList.Items = []string{"[gathering list of top processes](fg-red,bg-white)"}
-	mainList.Height = ui.TermHeight() / 2
+	mainList.Height = termui.TermHeight() / 2
 
-	ui.Body.AddRows(
-		ui.NewRow(
-			ui.NewCol(6, 0, procChart),
-			ui.NewCol(6, 0, sysChart),
+	termui.Body.AddRows(
+		termui.NewRow(
+			termui.NewCol(6, 0, procChart),
+			termui.NewCol(6, 0, sysChart),
 		),
-		ui.NewRow(
-			ui.NewCol(12, 0, mainList),
+		termui.NewRow(
+			termui.NewCol(12, 0, mainList),
 		),
 	)
 
-	ui.Body.Align()
-	ui.Render(ui.Body)
+	termui.Body.Align()
+	termui.Render(termui.Body)
 
-	ui.Handle("/sys/kbd/q", func(ui.Event) {
+	termui.Handle("/sys/kbd/q", func(termui.Event) {
 		tuiFatal("closing from keyboard")
 	})
 
-	ui.Handle("/sys/wnd/resize", func(e ui.Event) {
-		mainList.Height = ui.TermHeight() / 2
-		procChart.Height = ui.TermHeight() / 2
-		sysChart.Height = ui.TermHeight() / 2
-		ui.Body.Width = ui.TermWidth()
-		ui.Body.Align()
-		ui.Render(ui.Body)
+	termui.Handle("/sys/wnd/resize", func(e termui.Event) {
+		mainList.Height = termui.TermHeight() / 2
+		procChart.Height = termui.TermHeight() / 2
+		sysChart.Height = termui.TermHeight() / 2
+		termui.Body.Width = termui.TermWidth()
+		termui.Body.Align()
+		termui.Render(termui.Body)
 	})
 
-	ui.Loop()
+	termui.Loop()
 }
 
 // this is a lot of copy/paste from dumpStats. Would be good to refactor this to share.
@@ -189,7 +189,7 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 		return (valSec / sampleSec) * 100
 	}
 
-	graphColors = make(map[string]ui.Attribute)
+	graphColors = make(map[string]termui.Attribute)
 	mainList.Items = make([]string, len(list)+1)
 	colorPos := 0
 
@@ -233,7 +233,7 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 		colorPos = (colorPos + 1) % len(colorList)
 	}
 
-	ui.Render(mainList)
+	termui.Render(mainList)
 }
 
 func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta taskStatsMap,
@@ -262,7 +262,7 @@ func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta tas
 		sysChart.Data[name] = data[len(data)-dataStart:]
 	}
 	sysChart.DataLabels = dataLabels[len(dataLabels)-dataPoints:]
-	ui.Render(sysChart)
+	termui.Render(sysChart)
 
 	updatedPids := make(map[int]bool)
 
@@ -298,5 +298,5 @@ func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta tas
 	procChart.Data = graphData
 	procChart.LineColor = graphColors
 	procChart.DataLabels = dataLabels[len(dataLabels)-dataPoints:]
-	ui.Render(procChart)
+	termui.Render(procChart)
 }
