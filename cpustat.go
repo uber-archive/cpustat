@@ -22,14 +22,11 @@
 // Maybe this will turn into something like prstat on Solaris
 
 // easy
-// TODO - tui better colors
-// TODO - use the actual time of each measurement not the expected time
 // TODO - tui use keyboard to highlight a proc to make it be on top
 // TODO - tui use exited procs if they are still in the topN
-// TODO - use netlink to watch for processes exiting
 
 // hard
-// TODO - use perf_events to watch for processes starting so we don't have to constantly scan
+// TODO - use netlink to watch for processes exiting, or perf_events for start/exit
 // TODO - split into long running backend and multiple frontends
 
 package main
