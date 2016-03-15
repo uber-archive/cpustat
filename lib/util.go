@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package main
+package cpustat
 
 import (
 	"bytes"
@@ -31,22 +31,22 @@ import (
 // crude protection against rollover. This will miss the last portion of the previous sample
 // before the overflow, but capturing that is complicated because of the various number types
 // involved and their inconsistent documentation.
-func safeSub(a, b uint64) uint64 {
+func SafeSub(a, b uint64) uint64 {
 	if a < b {
 		return a
 	}
 	return a - b
 }
 
-func safeSubFloat(a, b float64) float64 {
+func SafeSubFloat(a, b float64) float64 {
 	if a < b {
 		return a
 	}
 	return a - b
 }
 
-func scaledSub(cur, prev uint64, scale float64) uint64 {
-	return uint64((float64(safeSub(cur, prev)) * scale) + 0.5)
+func ScaledSub(cur, prev uint64, scale float64) uint64 {
+	return uint64((float64(SafeSub(cur, prev)) * scale) + 0.5)
 }
 
 // note that this is not thread safe
@@ -72,7 +72,7 @@ func ReadSmallFile(filename string) ([]byte, error) {
 }
 
 // Read a small file and split on newline
-func readFileLines(filename string) ([]string, error) {
+func ReadFileLines(filename string) ([]string, error) {
 	file, err := ReadSmallFile(filename)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func readFileLines(filename string) ([]string, error) {
 }
 
 // pull a float64 out of a string
-func readFloat(str string) float64 {
+func ReadFloat(str string) float64 {
 	val, err := strconv.ParseFloat(str, 64)
 	if err != nil {
 		log.Fatal(err)
@@ -93,7 +93,7 @@ func readFloat(str string) float64 {
 }
 
 // pull a uint64 out of a string
-func readUInt(str string) uint64 {
+func ReadUInt(str string) uint64 {
 	val, err := strconv.ParseUint(str, 10, 64)
 	if err != nil {
 		panic(err)
@@ -102,7 +102,7 @@ func readUInt(str string) uint64 {
 }
 
 // pull a int64 out of a string
-func readInt(str string) int64 {
+func ReadInt(str string) int64 {
 	val, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
 		log.Fatal(err)
@@ -111,7 +111,7 @@ func readInt(str string) int64 {
 }
 
 // remove grouping characters that confuse the termui parser
-func stripSpecial(r rune) rune {
+func StripSpecial(r rune) rune {
 	if r == '[' || r == ']' || r == '(' || r == ')' {
 		return -1
 	}

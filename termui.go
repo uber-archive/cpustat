@@ -201,11 +201,11 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
 		if task, ok := taskSum[pid]; ok == true {
-			cpuDelay = trim(scaleSumUs(float64(task.cpudelaytotal), sampleCount), 7)
-			blockDelay = trim(scaleSumUs(float64(task.blkiodelaytotal), sampleCount), 7)
-			swapDelay = trim(scaleSumUs(float64(task.swapindelaytotal), sampleCount), 7)
-			nvcsw = formatNum(task.nvcsw)
-			nivcsw = formatNum(task.nivcsw)
+			cpuDelay = trim(scaleSumUs(float64(task.Cpudelaytotal), sampleCount), 7)
+			blockDelay = trim(scaleSumUs(float64(task.Blkiodelaytotal), sampleCount), 7)
+			swapDelay = trim(scaleSumUs(float64(task.Swapindelaytotal), sampleCount), 7)
+			nvcsw = formatNum(task.Nvcsw)
+			nivcsw = formatNum(task.Nivcsw)
 		}
 
 		strPid := fmt.Sprint(pid)
@@ -217,17 +217,17 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 			colorPos,
 			trim(scale(float64(procHist[pid].ustime.Min())), 7),
 			trim(scale(float64(procHist[pid].ustime.Max())), 7),
-			trim(scaleSum(float64(procSum[pid].utime), sampleCount), 7),
-			trim(scaleSum(float64(procSum[pid].stime), sampleCount), 7),
-			procSum[pid].nice,
+			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
+			procSum[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,
 			nvcsw,
 			nivcsw,
-			formatMem(procSum[pid].rss),
-			trim(scaleSum(float64(procSum[pid].cutime+procSum[pid].cstime), sampleCount), 7),
-			procSum[pid].numThreads,
+			formatMem(procSum[pid].Rss),
+			trim(scaleSum(float64(procSum[pid].Cutime+procSum[pid].Cstime), sampleCount), 7),
+			procSum[pid].Numthreads,
 			sampleCount,
 		)
 		colorPos = (colorPos + 1) % len(colorList)
@@ -250,8 +250,8 @@ func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta tas
 		return val / float64(jiffy) / float64(interval) * 1000 * 100
 	}
 
-	sysChartData["usr"] = append(sysChartData["usr"], scale(float64(sysDelta.usr)))
-	sysChartData["sys"] = append(sysChartData["sys"], scale(float64(sysDelta.sys)))
+	sysChartData["usr"] = append(sysChartData["usr"], scale(float64(sysDelta.Usr)))
+	sysChartData["sys"] = append(sysChartData["sys"], scale(float64(sysDelta.Sys)))
 
 	dataPoints := (sysChart.InnerWidth() * 2) - 14 // WTF is this magic number for?
 	dataStart := dataPoints
@@ -270,9 +270,9 @@ func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta tas
 		updatedPids[pid] = true
 		if _, ok := procChartData[pid]; ok == false {
 			procChartData[pid] = make([]float64, 1, chartBackingSize)
-			procChartData[pid][0] = scale(float64(delta.utime + delta.stime))
+			procChartData[pid][0] = scale(float64(delta.Utime + delta.Stime))
 		} else {
-			procChartData[pid] = append(procChartData[pid], scale(float64(delta.utime+delta.stime)))
+			procChartData[pid] = append(procChartData[pid], scale(float64(delta.Utime+delta.Stime)))
 		}
 	}
 

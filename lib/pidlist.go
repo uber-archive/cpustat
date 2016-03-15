@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package main
+package cpustat
 
 import (
 	"log"
@@ -26,12 +26,12 @@ import (
 	"strconv"
 )
 
-type pidlist []int
+type Pidlist []int
 
 // We churn the pidlist constantly, so this is an optimization to reuse the underlying list every time.
 // Replace the new values in the old list, shrinking or growing as necessary.
 // This saves a bit of GC.
-func getPidList(list *pidlist) {
+func GetPidList(list *Pidlist, maxProcsToScan int) {
 	var procDir *os.File
 	var procNames []string
 	var err error
