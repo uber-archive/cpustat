@@ -79,6 +79,8 @@ func main() {
 		}
 	}
 
+	handle := dbInit("./db")
+
 	uiQuitChan := make(chan string)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
@@ -100,6 +102,8 @@ func main() {
 			pprof.WriteHeapProfile(f)
 			f.Close()
 		}
+
+		handle.env.Close()
 		os.Exit(0)
 	}()
 
@@ -136,6 +140,7 @@ func main() {
 	procPrev = procStatsReader(pids, cmdNames)
 	taskPrev = taskStatsReader(nlConn, pids, cmdNames)
 	sysPrev = systemStatsReader()
+	writeSample(handle, &procPrev, &taskPrev, sysPrev)
 	sysSum = &systemStats{}
 	sysHist = &systemStatsHist{}
 	t2 = time.Now()
@@ -162,6 +167,7 @@ func main() {
 			sysCur = systemStatsReader()
 			sysDelta := systemStatsRecord(*interval, sysCur, sysPrev, sysSum, sysHist)
 			sysPrev = sysCur
+			writeSample(handle, &procCur, &taskCur, sysCur)
 
 			if *useTui {
 				tuiGraphUpdate(procDelta, sysDelta, taskDelta, topPids, *jiffy, *interval)

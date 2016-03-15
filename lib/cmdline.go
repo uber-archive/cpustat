@@ -23,7 +23,7 @@
 // some environments. It would be nice if there was some way to let people extend these
 // rules based on how they run their programs.
 
-package main
+package cpustat
 
 import (
 	"bytes"
@@ -31,14 +31,14 @@ import (
 	"strings"
 )
 
-type cmdline struct {
+type Cmdline struct {
 	parts    []string
 	friendly string
 }
 
-type cmdlineMap map[int]*cmdline
+type CmdlineMap map[int]*Cmdline
 
-func updateCmdline(cmds cmdlineMap, pid int, comm string) {
+func updateCmdline(cmds CmdlineMap, pid int, comm string) {
 	nullSep := []byte{0}
 	spaceSep := []byte{32}
 
@@ -47,7 +47,7 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 		return
 	}
 
-	newCmdline := cmdline{}
+	newCmdline := Cmdline{}
 	cmds[pid] = &newCmdline
 
 	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", pid))
@@ -94,7 +94,7 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 		newCmdline.friendly = resolveDefault(newCmdline.parts, comm)
 	}
 
-	newCmdline.friendly = strings.Map(stripSpecial, newCmdline.friendly)
+	newCmdline.friendly = strings.Map(StripSpecial, newCmdline.friendly)
 }
 
 func resolveUwsgi(parts []string) string {
