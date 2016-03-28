@@ -24,8 +24,6 @@
 
 package main
 
-// #include <linux/netlink.h>
-// #include <linux/genetlink.h>
 // #include <linux/taskstats.h>
 import "C"
 

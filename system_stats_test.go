@@ -1,0 +1,193 @@
+// Copyright (c) 2016 Uber Technologies, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+package main
+
+import (
+	"io/ioutil"
+	"os"
+	"testing"
+)
+
+func tmpFile(contents string) (*os.File, error) {
+	tmpfile, err := ioutil.TempFile("", "system_stats_test.go")
+	if err != nil {
+		return tmpfile, err
+	}
+
+	if _, err := tmpfile.Write([]byte(contents)); err != nil {
+		return tmpfile, err
+	}
+	if err := tmpfile.Close(); err != nil {
+		return tmpfile, err
+	}
+	statsPath = tmpfile.Name()
+
+	return tmpfile, nil
+}
+
+func TestEmptyFile(t *testing.T) {
+	file, err := tmpFile("")
+	defer os.Remove(file.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = systemStatsReader()
+	if err == nil {
+		t.Error("empty stats file should be an error but isn't")
+	}
+}
+
+var pre2633 = `cpu  130 1 493 10614 387 20 13 2 3
+cpu0 24 0 98 2698 108 20 1 0 0
+cpu1 29 0 132 2658 96 0 3 0 0
+cpu2 39 0 90 2692 92 0 5 0 0
+cpu3 36 0 170 2565 90 0 4 0 0
+intr 37310 121 7 0 0 0 0 0 0 0 0 0 0 112 0 0 69 161 0 0 29 0 2675 26 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 23132
+btime 1459206723
+processes 1372
+procs_running 1
+procs_blocked 2
+softirq 46994 0 18265 7 190 2718 0 2 3667 4 22141`
+
+func TestLinuxPre2633(t *testing.T) {
+	file, err := tmpFile(pre2633)
+	defer os.Remove(file.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	stats, err := systemStatsReader()
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.usr != 130 {
+		t.Error("usr should be 130 but isn't")
+	}
+	if stats.nice != 1 {
+		t.Error("nice should be 1 but isn't")
+	}
+	if stats.sys != 493 {
+		t.Error("sys should be 493 but isn't")
+	}
+	if stats.idle != 10614 {
+		t.Error("idle should be 10614 but isn't")
+	}
+	if stats.iowait != 387 {
+		t.Error("iowait should be 387 but isn't")
+	}
+	if stats.irq != 20 {
+		t.Error("irq should be 20 but isn't")
+	}
+	if stats.softirq != 13 {
+		t.Error("softirq should be 13 but isn't")
+	}
+	if stats.steal != 2 {
+		t.Error("steal should be 2 but isn't")
+	}
+	if stats.guest != 3 {
+		t.Error("guest should be 3 but isn't")
+	}
+	if stats.guestNice != 0 {
+		t.Error("guestNice should be 0 but isn't")
+	}
+	if stats.ctxt != 23132 {
+		t.Error("ctxt should be 23132 but isn't")
+	}
+	if stats.procsTotal != 1372 {
+		t.Error("procsTotal should be 1372 but isn't")
+	}
+	if stats.procsRunning != 1 {
+		t.Error("procsRunning should be 1 but isn't")
+	}
+	if stats.procsBlocked != 2 {
+		t.Error("procsBlocked should be 2 but isn't")
+	}
+}
+
+var post2633 = `cpu  10327 621 4341 21223299 2092 2 643 6 7 8
+cpu0 3702 602 1258 5301320 910 2 373 0 0 0
+cpu1 2104 18 957 5307634 240 0 91 0 0 0
+cpu2 2499 0 1259 5306604 502 0 97 0 0 0
+cpu3 2021 0 866 5307740 439 0 81 0 0 0
+intr 1537790 33 12 0 0 0 0 0 0 0 0 0 0 156 0 0 51963 20912 0 0 2507 21297 63444 27 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+ctxt 2752498
+btime 1459152751
+processes 26946
+procs_running 2
+procs_blocked 3
+softirq 742107 2 283236 90 22753 81771 0 47 242210 486 111512`
+
+func TestLinuxPost2633(t *testing.T) {
+	file, err := tmpFile(post2633)
+	defer os.Remove(file.Name())
+	if err != nil {
+		t.Error(err)
+	}
+
+	stats, err := systemStatsReader()
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.usr != 10327 {
+		t.Error("usr should be 10327 but is", stats.usr)
+	}
+	if stats.nice != 621 {
+		t.Error("nice should be 621 but isn't")
+	}
+	if stats.sys != 4341 {
+		t.Error("sys should be 4341 but isn't")
+	}
+	if stats.idle != 21223299 {
+		t.Error("idle should be 21223299 but isn't")
+	}
+	if stats.iowait != 2092 {
+		t.Error("iowait should be 2092 but isn't")
+	}
+	if stats.irq != 2 {
+		t.Error("irq should be 2 but isn't")
+	}
+	if stats.softirq != 643 {
+		t.Error("softirq should be 643 but isn't")
+	}
+	if stats.steal != 6 {
+		t.Error("steal should be 6 but isn't")
+	}
+	if stats.guest != 7 {
+		t.Error("guest should be 7 but isn't")
+	}
+	if stats.guestNice != 8 {
+		t.Error("guestNice should be 8 but isn't")
+	}
+	if stats.ctxt != 2752498 {
+		t.Error("ctxt should be 2752498 but isn't")
+	}
+	if stats.procsTotal != 26946 {
+		t.Error("procsTotal should be 26946 but isn't")
+	}
+	if stats.procsRunning != 2 {
+		t.Error("procsRunning should be 2 but isn't")
+	}
+	if stats.procsBlocked != 3 {
+		t.Error("procsBlocked should be 3 but isn't")
+	}
+}
