@@ -133,9 +133,12 @@ func main() {
 	getPidList(&pids)
 
 	t1 = time.Now()
+	var err error
 	procPrev = procStatsReader(pids, cmdNames)
 	taskPrev = taskStatsReader(nlConn, pids, cmdNames)
-	sysPrev = systemStatsReader()
+	if sysPrev, err = systemStatsReader(); err != nil {
+		log.Fatal(err)
+	}
 	sysSum = &systemStats{}
 	sysHist = &systemStatsHist{}
 	t2 = time.Now()
@@ -159,7 +162,9 @@ func main() {
 			taskDelta := taskStatsRecord(*interval, taskCur, taskPrev, taskSum, taskHist)
 			taskPrev = taskCur
 
-			sysCur = systemStatsReader()
+			if sysCur, err = systemStatsReader(); err != nil {
+				log.Fatal(err)
+			}
 			sysDelta := systemStatsRecord(*interval, sysCur, sysPrev, sysSum, sysHist)
 			sysPrev = sysCur
 

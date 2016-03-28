@@ -23,12 +23,15 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/codahale/hdrhistogram"
 )
+
+// make this a package var so tests can change it
+var statsPath = "/proc/stat"
 
 type systemStats struct {
 	captureTime  time.Time
@@ -61,10 +64,14 @@ type systemStatsHist struct {
 	procsBlocked *hdrhistogram.Histogram
 }
 
-func systemStatsReader() *systemStats {
-	lines, err := readFileLines("/proc/stat")
+func systemStatsReader() (*systemStats, error) {
+	lines, err := readFileLines(statsPath)
 	if err != nil {
-		log.Fatal("reading /proc/stat: ", err)
+		return nil, fmt.Errorf("reading %s: %s", statsPath, err)
+	}
+
+	if len(lines) <= 1 {
+		return nil, fmt.Errorf("reading %s: empty file read", statsPath)
 	}
 
 	cur := systemStats{}
@@ -86,7 +93,10 @@ func systemStatsReader() *systemStats {
 			cur.softirq = readUInt(parts[7])
 			cur.steal = readUInt(parts[8])
 			cur.guest = readUInt(parts[9])
-			cur.guestNice = readUInt(parts[10])
+			// Linux 2.6.33 introduced guestNice, just leave it 0 if it's not there
+			if len(parts) == 11 {
+				cur.guestNice = readUInt(parts[10])
+			}
 		case "ctxt":
 			cur.ctxt = readUInt(parts[1])
 		case "processes":
@@ -100,7 +110,7 @@ func systemStatsReader() *systemStats {
 		}
 	}
 
-	return &cur
+	return &cur, nil
 }
 
 func systemStatsRecord(interval int, cur, prev, sum *systemStats, hist *systemStatsHist) *systemStats {
