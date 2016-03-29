@@ -118,7 +118,7 @@ itself.
 ## Run within a Docker container
 
 ```
- docker run --rm -ti --privileged --pid=host --net=host uber/cpustat -s=500 -n=20
+ docker run --rm -ti --privileged --pid=host --net=host user/cpustat -s=200 -n=20
 ```
 
 ## Limitations
