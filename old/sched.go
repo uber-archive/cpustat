@@ -22,7 +22,7 @@
 // The data from /proc seems less consistent that taskstats. I could be imagining this though.
 // If it turns out that I am imagining it, we should go back to using this, which is easy to understand.
 
-package main
+package cpustat
 
 import (
 	"log"
@@ -55,9 +55,9 @@ type schedStatsCPUHist struct {
 }
 
 func schedReaderCPU() *schedStatsCPU {
-	lines, err := readFileLines("/proc/schedstat")
+	lines, err := ReadFileLines("/proc/schedstat")
 	if err != nil {
-		log.Fatal("reading /proc/stat: ", err)
+		log.Fatal("reading /proc/schedstat: ", err)
 	}
 
 	cur := schedStatsCPU{}
@@ -65,14 +65,14 @@ func schedReaderCPU() *schedStatsCPU {
 	for _, line := range lines {
 		parts := strings.Split(strings.TrimSpace(line), " ")
 		if strings.Index(parts[0], "cpu") == 0 {
-			cur.schedYieldCalls += readUInt(parts[1])
-			cur.scheduleCalls += readUInt(parts[3])
-			cur.scheduleProcIdle += readUInt(parts[4])
-			cur.wakeUpCalls += readUInt(parts[5])
-			cur.wakeUpCallsLocal += readUInt(parts[6])
-			cur.timeRunning += readUInt(parts[7])
-			cur.timeWaiting += readUInt(parts[8])
-			cur.timeSlices += readUInt(parts[9])
+			cur.schedYieldCalls += ReadUInt(parts[1])
+			cur.scheduleCalls += ReadUInt(parts[3])
+			cur.scheduleProcIdle += ReadUInt(parts[4])
+			cur.wakeUpCalls += ReadUInt(parts[5])
+			cur.wakeUpCallsLocal += ReadUInt(parts[6])
+			cur.timeRunning += ReadUInt(parts[7])
+			cur.timeWaiting += ReadUInt(parts[8])
+			cur.timeSlices += ReadUInt(parts[9])
 		}
 		// skip all the domain lines, maybe add them at some point
 	}

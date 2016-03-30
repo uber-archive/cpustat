@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 
+	lib "github.com/uber-common/cpustat/lib"
 	"github.com/uber-common/termui"
 )
 
@@ -162,9 +163,9 @@ func tuiInit(ch chan string, interval int) {
 }
 
 // this is a lot of copy/paste from dumpStats. Would be good to refactor this to share.
-func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist procStatsHistMap,
-	taskSum taskStatsMap, taskHist taskStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
-	jiffy, interval, samples int) {
+func tuiListUpdate(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcStatsMap,
+	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
+	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
 	// if something in here panics, the output goes to the screen, which conflicts with termbox mode.
 	// try to capture this and quit termbox before we print the crash.
@@ -196,7 +197,7 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 	mainList.Items[0] = fmt.Sprint("                        comm     pid     min     max     usr     sys  nice    runq     iow    swap   ctx   icx   rss   ctime thrd  sam")
 
 	for i, pid := range list {
-		sampleCount := procHist[pid].ustime.TotalCount()
+		sampleCount := procHist[pid].Ustime.TotalCount()
 
 		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
@@ -212,11 +213,11 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 		graphColors[strPid] = colorList[colorPos]
 
 		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d",
-			trunc(cmdNames[pid].friendly, 28),
+			trunc(cmdNames[pid].Friendly, 28),
 			pid,
 			colorPos,
-			trim(scale(float64(procHist[pid].ustime.Min())), 7),
-			trim(scale(float64(procHist[pid].ustime.Max())), 7),
+			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
+			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
 			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
 			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
 			procSum[pid].Nice,
@@ -236,8 +237,8 @@ func tuiListUpdate(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, proc
 	termui.Render(mainList)
 }
 
-func tuiGraphUpdate(procDelta procStatsMap, sysDelta *systemStats, taskDelta taskStatsMap,
-	topPids pidlist, jiffy, interval int) {
+func tuiGraphUpdate(procDelta lib.ProcStatsMap, sysDelta *lib.SystemStats, taskDelta lib.TaskStatsMap,
+	topPids lib.Pidlist, jiffy, interval int) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package main
+package cpustat
 
 import (
 	"io/ioutil"
@@ -50,7 +50,7 @@ func TestEmptyFile(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = systemStatsReader()
+	_, err = SystemStatsReader()
 	if err == nil {
 		t.Error("empty stats file should be an error but isn't")
 	}
@@ -76,7 +76,7 @@ func TestLinuxPre2633(t *testing.T) {
 		t.Error(err)
 	}
 
-	stats, err := systemStatsReader()
+	stats, err := SystemStatsReader()
 	if err != nil {
 		t.Error(err)
 	}
@@ -144,7 +144,7 @@ func TestLinuxPost2633(t *testing.T) {
 		t.Error(err)
 	}
 
-	stats, err := systemStatsReader()
+	stats, err := SystemStatsReader()
 	if err != nil {
 		t.Error(err)
 	}

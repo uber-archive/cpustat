@@ -26,14 +26,11 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/codahale/hdrhistogram"
 )
 
 // ProcStats holds the information that comes back from /proc/[pid]/stat
 type ProcStats struct {
 	CaptureTime         time.Time
-	PrevTime            time.Time
 	Pid                 uint64
 	Comm                string
 	State               string
@@ -66,18 +63,7 @@ type ProcStats struct {
 	Cguesttime          uint64
 }
 
-// These are somewhat expensive to track, so only maintain a hist for ones we use
-type ProcStatsHist struct {
-	utime   *hdrhistogram.Histogram
-	stime   *hdrhistogram.Histogram
-	ustime  *hdrhistogram.Histogram // utime + stime
-	cutime  *hdrhistogram.Histogram
-	cstime  *hdrhistogram.Histogram
-	custime *hdrhistogram.Histogram // cutime + cstime
-}
-
 type ProcStatsMap map[int]*ProcStats
-type ProcStatsHistMap map[int]*ProcStatsHist
 
 // you might think that we could split on space, but due to what can at best be called
 // a shortcoming of the /proc/pid/stat format, the comm field can have unescaped spaces, parens, etc.
@@ -143,8 +129,7 @@ func ProcStatsReader(pids Pidlist, cmdNames CmdlineMap) ProcStatsMap {
 		parts := procPidStatSplit(lines[0])
 
 		stat := ProcStats{
-			time.Now(), // this might be expensive. If so, can cache it. We only need 1ms resolution
-			time.Time{},
+			time.Now(),
 			ReadUInt(parts[0]),                  // pid
 			strings.Map(StripSpecial, parts[1]), // comm
 			parts[2],            // state
@@ -197,8 +182,7 @@ func ProcStatsRecord(interval int, curMap, prevMap, sumMap ProcStatsMap) ProcSta
 			delta := deltaMap[pid]
 
 			delta.CaptureTime = cur.CaptureTime
-			delta.PrevTime = prev.CaptureTime
-			duration := float64(delta.CaptureTime.Sub(delta.PrevTime) / time.Millisecond)
+			duration := float64(delta.CaptureTime.Sub(prev.CaptureTime) / time.Millisecond)
 			scale := float64(interval) / duration
 
 			sum := sumMap[pid]

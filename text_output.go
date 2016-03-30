@@ -20,7 +20,11 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	lib "github.com/uber-common/cpustat/lib"
+)
 
 func formatMem(num uint64) string {
 	letter := string("K")
@@ -73,9 +77,9 @@ func trunc(str string, length int) string {
 	return str[:length]
 }
 
-func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist procStatsHistMap,
-	taskSum taskStatsMap, taskHist taskStatsHistMap, sysSum *systemStats, sysHist *systemStatsHist,
-	jiffy, interval, samples int) {
+func dumpStats(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcStatsMap,
+	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
+	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
 	scale := func(val float64) float64 {
 		return val / float64(jiffy) / float64(interval) * 1000 * 100
@@ -93,41 +97,41 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist
 	}
 
 	fmt.Printf("usr:    %4s/%4s/%4s   sys:%4s/%4s/%4s    nice:%4s/%4s/%4s  idle:%4s/%4s/%4s\n",
-		trim(scale(float64(sysHist.usr.Min())), 4),
-		trim(scale(float64(sysHist.usr.Max())), 4),
-		trim(scale(sysHist.usr.Mean()), 4),
+		trim(scale(float64(sysHist.Usr.Min())), 4),
+		trim(scale(float64(sysHist.Usr.Max())), 4),
+		trim(scale(sysHist.Usr.Mean()), 4),
 
-		trim(scale(float64(sysHist.sys.Min())), 4),
-		trim(scale(float64(sysHist.sys.Max())), 4),
-		trim(scale(sysHist.sys.Mean()), 4),
+		trim(scale(float64(sysHist.Sys.Min())), 4),
+		trim(scale(float64(sysHist.Sys.Max())), 4),
+		trim(scale(sysHist.Sys.Mean()), 4),
 
-		trim(scale(float64(sysHist.nice.Min())), 4),
-		trim(scale(float64(sysHist.nice.Max())), 4),
-		trim(scale(sysHist.nice.Mean()), 4),
+		trim(scale(float64(sysHist.Nice.Min())), 4),
+		trim(scale(float64(sysHist.Nice.Max())), 4),
+		trim(scale(sysHist.Nice.Mean()), 4),
 
-		trim(scale(float64(sysHist.idle.Min())), 4),
-		trim(scale(float64(sysHist.idle.Max())), 4),
-		trim(scale(sysHist.idle.Mean()), 4),
+		trim(scale(float64(sysHist.Idle.Min())), 4),
+		trim(scale(float64(sysHist.Idle.Max())), 4),
+		trim(scale(sysHist.Idle.Mean()), 4),
 	)
 	fmt.Printf("iowait: %4s/%4s/%4s  prun:%4s/%4s/%4s  pblock:%4s/%4s/%4s  pstart: %4d\n",
-		trim(scale(float64(sysHist.iowait.Min())), 4),
-		trim(scale(float64(sysHist.iowait.Max())), 4),
-		trim(scale(sysHist.iowait.Mean()), 4),
+		trim(scale(float64(sysHist.Iowait.Min())), 4),
+		trim(scale(float64(sysHist.Iowait.Max())), 4),
+		trim(scale(sysHist.Iowait.Mean()), 4),
 
-		trim(float64(sysHist.procsRunning.Min()), 4),
-		trim(float64(sysHist.procsRunning.Max()), 4),
-		trim(sysHist.procsRunning.Mean(), 4),
+		trim(float64(sysHist.ProcsRunning.Min()), 4),
+		trim(float64(sysHist.ProcsRunning.Max()), 4),
+		trim(sysHist.ProcsRunning.Mean(), 4),
 
-		trim(float64(sysHist.procsBlocked.Min()), 4),
-		trim(float64(sysHist.procsBlocked.Max()), 4),
-		trim(sysHist.procsBlocked.Mean(), 4),
+		trim(float64(sysHist.ProcsBlocked.Min()), 4),
+		trim(float64(sysHist.ProcsBlocked.Max()), 4),
+		trim(sysHist.ProcsBlocked.Mean(), 4),
 
 		sysSum.ProcsTotal,
 	)
 
 	fmt.Print("                   comm     pid     min     max     usr     sys  nice    runq     iow    swap   ctx   icx   rss   ctime thrd  sam\n")
 	for _, pid := range list {
-		sampleCount := procHist[pid].ustime.TotalCount()
+		sampleCount := procHist[pid].Ustime.TotalCount()
 
 		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
@@ -140,10 +144,10 @@ func dumpStats(cmdNames cmdlineMap, list pidlist, procSum procStatsMap, procHist
 		}
 
 		fmt.Printf("%23s %7d %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d\n",
-			trunc(cmdNames[pid].friendly, 23),
+			trunc(cmdNames[pid].Friendly, 23),
 			pid,
-			trim(scale(float64(procHist[pid].ustime.Min())), 7),
-			trim(scale(float64(procHist[pid].ustime.Max())), 7),
+			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
+			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
 			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
 			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
 			procSum[pid].Nice,

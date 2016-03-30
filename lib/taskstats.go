@@ -20,11 +20,7 @@
 
 package cpustat
 
-import (
-	"time"
-
-	"github.com/codahale/hdrhistogram"
-)
+import "time"
 
 type TaskStats struct {
 	Capturetime         time.Time
@@ -49,14 +45,7 @@ type TaskStats struct {
 	Freepagesdelaytotal uint64 // delay time waiting for memory reclaim in unknown units
 }
 
-type TaskStatsHist struct {
-	cpudelay *hdrhistogram.Histogram
-	iowait   *hdrhistogram.Histogram
-	swap     *hdrhistogram.Histogram
-}
-
 type TaskStatsMap map[int]*TaskStats
-type TaskStatsHistMap map[int]*TaskStatsHist
 
 func TaskStatsReader(conn *NLConn, pids Pidlist, cmdNames CmdlineMap) TaskStatsMap {
 	cur := make(TaskStatsMap)
@@ -73,7 +62,7 @@ func TaskStatsReader(conn *NLConn, pids Pidlist, cmdNames CmdlineMap) TaskStatsM
 	return cur
 }
 
-func TaskStatsRecord(interval int, curMap, prevMap, sumMap TaskStatsMap, histMap TaskStatsHistMap) TaskStatsMap {
+func TaskStatsRecord(interval int, curMap, prevMap, sumMap TaskStatsMap) TaskStatsMap {
 	deltaMap := make(TaskStatsMap)
 
 	for pid, cur := range curMap {

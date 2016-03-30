@@ -23,11 +23,13 @@
 package cpustat
 
 import (
-	"bytes"
-	"log"
+	"fmt"
 	"strings"
 	"time"
 )
+
+// make this a package var so tests or users can change it
+var StatsPath = "/proc/stat"
 
 type SystemStats struct {
 	CaptureTime  time.Time
@@ -47,85 +49,14 @@ type SystemStats struct {
 	ProcsBlocked uint64
 }
 
-func writeUint64LE(buf *bytes.Buffer, num uint64) {
-	buf.WriteByte(byte(num))
-	buf.WriteByte(byte(num >> 8))
-	buf.WriteByte(byte(num >> 16))
-	buf.WriteByte(byte(num >> 24))
-	buf.WriteByte(byte(num >> 32))
-	buf.WriteByte(byte(num >> 40))
-	buf.WriteByte(byte(num >> 48))
-	buf.WriteByte(byte(num >> 56))
-}
-
-func (s *SystemStats) writeBuf(buf *bytes.Buffer) {
-	tbuf, _ := s.CaptureTime.MarshalBinary()
-	buf.Write(tbuf)
-	writeUint64LE(buf, s.Usr)
-	writeUint64LE(buf, s.Nice)
-	writeUint64LE(buf, s.Sys)
-	writeUint64LE(buf, s.Idle)
-	writeUint64LE(buf, s.Iowait)
-	writeUint64LE(buf, s.Irq)
-	writeUint64LE(buf, s.Softirq)
-	writeUint64LE(buf, s.Steal)
-	writeUint64LE(buf, s.Guest)
-	writeUint64LE(buf, s.GuestNice)
-	writeUint64LE(buf, s.Ctxt)
-	writeUint64LE(buf, s.ProcsTotal)
-	writeUint64LE(buf, s.ProcsRunning)
-	writeUint64LE(buf, s.ProcsBlocked)
-}
-
-func readUint64LE(buf *bytes.Buffer) uint64 {
-	b0, err0 := buf.ReadByte()
-	b1, err1 := buf.ReadByte()
-	b2, err2 := buf.ReadByte()
-	b3, err3 := buf.ReadByte()
-	b4, err4 := buf.ReadByte()
-	b5, err5 := buf.ReadByte()
-	b6, err6 := buf.ReadByte()
-	b7, err7 := buf.ReadByte()
-
-	if err0 != nil || err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil || err6 != nil ||
-		err7 != nil {
-		return 0
+func SystemStatsReader() (*SystemStats, error) {
+	lines, err := ReadFileLines(StatsPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %s", StatsPath, err)
 	}
 
-	return uint64(b0) | uint64(b1)<<8 | uint64(b2)<<16 | uint64(b3)<<24 | uint64(b4)<<32 | uint64(b5)<<40 |
-		uint64(b6)<<48 | uint64(b7)<<56
-}
-
-const sizeTime = 15
-
-func (sys *SystemStats) readBuf(buf *bytes.Buffer) {
-	raw := make([]byte, sizeTime)
-	var t time.Time
-
-	buf.Read(raw)
-	t.UnmarshalBinary(raw)
-	sys.CaptureTime = t
-
-	sys.Usr = readUint64LE(buf)
-	sys.Nice = readUint64LE(buf)
-	sys.Sys = readUint64LE(buf)
-	sys.Idle = readUint64LE(buf)
-	sys.Iowait = readUint64LE(buf)
-	sys.Irq = readUint64LE(buf)
-	sys.Softirq = readUint64LE(buf)
-	sys.Steal = readUint64LE(buf)
-	sys.Guest = readUint64LE(buf)
-	sys.GuestNice = readUint64LE(buf)
-	sys.Ctxt = readUint64LE(buf)
-	sys.ProcsTotal = readUint64LE(buf)
-	sys.ProcsRunning = readUint64LE(buf)
-	sys.ProcsBlocked = readUint64LE(buf)
-}
-
-func SystemStatsReader() *SystemStats {
-	lines, err := ReadFileLines("/proc/stat")
-	if err != nil {
-		log.Fatal("reading /proc/stat: ", err)
+	if len(lines) <= 1 {
+		return nil, fmt.Errorf("reading %s: empty file read", StatsPath)
 	}
 
 	cur := SystemStats{}
@@ -146,7 +77,10 @@ func SystemStatsReader() *SystemStats {
 			cur.Softirq = ReadUInt(parts[7])
 			cur.Steal = ReadUInt(parts[8])
 			cur.Guest = ReadUInt(parts[9])
-			cur.GuestNice = ReadUInt(parts[10])
+			// Linux 2.6.33 introduced guestNice, just leave it 0 if it's not there
+			if len(parts) == 11 {
+				cur.GuestNice = ReadUInt(parts[10])
+			}
 		case "ctxt":
 			cur.Ctxt = ReadUInt(parts[1])
 		case "processes":
@@ -160,7 +94,7 @@ func SystemStatsReader() *SystemStats {
 		}
 	}
 
-	return &cur
+	return &cur, nil
 }
 
 func SystemStatsRecord(interval int, cur, prev, sum *SystemStats) *SystemStats {
@@ -196,7 +130,9 @@ func SystemStatsRecord(interval int, cur, prev, sum *SystemStats) *SystemStats {
 	delta.ProcsTotal = ScaledSub(cur.ProcsTotal, prev.ProcsTotal, scale)
 	sum.ProcsTotal += SafeSub(cur.ProcsTotal, prev.ProcsTotal)
 	sum.ProcsRunning = cur.ProcsRunning
+	delta.ProcsRunning = cur.ProcsRunning
 	sum.ProcsBlocked = cur.ProcsBlocked
+	delta.ProcsBlocked = cur.ProcsBlocked
 
 	return delta
 }

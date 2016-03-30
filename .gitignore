@@ -1,2 +1,7 @@
 cpustat
 .gobuild
+*~
+*.pprof
+_obj
+\#*\#
+*.pdf
