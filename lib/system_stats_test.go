@@ -38,7 +38,7 @@ func tmpFile(contents string) (*os.File, error) {
 	if err := tmpfile.Close(); err != nil {
 		return tmpfile, err
 	}
-	statsPath = tmpfile.Name()
+	StatsPath = tmpfile.Name()
 
 	return tmpfile, nil
 }
@@ -80,47 +80,47 @@ func TestLinuxPre2633(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.usr != 130 {
-		t.Error("usr should be 130 but is", stats.usr)
+	if stats.Usr != 130 {
+		t.Error("usr should be 130 but is", stats.Usr)
 	}
-	if stats.nice != 1 {
-		t.Error("nice should be 1 but is", stats.nice)
+	if stats.Nice != 1 {
+		t.Error("nice should be 1 but is", stats.Nice)
 	}
-	if stats.sys != 493 {
-		t.Error("sys should be 493 but is", stats.sys)
+	if stats.Sys != 493 {
+		t.Error("sys should be 493 but is", stats.Sys)
 	}
-	if stats.idle != 10614 {
-		t.Error("idle should be 10614 but is", stats.idle)
+	if stats.Idle != 10614 {
+		t.Error("idle should be 10614 but is", stats.Idle)
 	}
-	if stats.iowait != 387 {
-		t.Error("iowait should be 387 but is", stats.iowait)
+	if stats.Iowait != 387 {
+		t.Error("iowait should be 387 but is", stats.Iowait)
 	}
-	if stats.irq != 20 {
-		t.Error("irq should be 20 but is", stats.irq)
+	if stats.Irq != 20 {
+		t.Error("irq should be 20 but is", stats.Irq)
 	}
-	if stats.softirq != 13 {
-		t.Error("softirq should be 13 but is", stats.softirq)
+	if stats.Softirq != 13 {
+		t.Error("softirq should be 13 but is", stats.Softirq)
 	}
-	if stats.steal != 2 {
-		t.Error("steal should be 2 but is", stats.steal)
+	if stats.Steal != 2 {
+		t.Error("steal should be 2 but is", stats.Steal)
 	}
-	if stats.guest != 3 {
-		t.Error("guest should be 3 but is", stats.guest)
+	if stats.Guest != 3 {
+		t.Error("guest should be 3 but is", stats.Guest)
 	}
-	if stats.guestNice != 0 {
-		t.Error("guestNice should be 0 but is", stats.guestNice)
+	if stats.GuestNice != 0 {
+		t.Error("guestNice should be 0 but is", stats.GuestNice)
 	}
-	if stats.ctxt != 23132 {
-		t.Error("ctxt should be 23132 but is", stats.ctxt)
+	if stats.Ctxt != 23132 {
+		t.Error("ctxt should be 23132 but is", stats.Ctxt)
 	}
-	if stats.procsTotal != 1372 {
-		t.Error("procsTotal should be 1372 but is", stats.procsTotal)
+	if stats.ProcsTotal != 1372 {
+		t.Error("procsTotal should be 1372 but is", stats.ProcsTotal)
 	}
-	if stats.procsRunning != 1 {
-		t.Error("procsRunning should be 1 but is", stats.procsRunning)
+	if stats.ProcsRunning != 1 {
+		t.Error("procsRunning should be 1 but is", stats.ProcsRunning)
 	}
-	if stats.procsBlocked != 2 {
-		t.Error("procsBlocked should be 2 but is", stats.procsBlocked)
+	if stats.ProcsBlocked != 2 {
+		t.Error("procsBlocked should be 2 but is", stats.ProcsBlocked)
 	}
 }
 
@@ -148,46 +148,46 @@ func TestLinuxPost2633(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.usr != 10327 {
-		t.Error("usr should be 10327 but is", stats.usr)
+	if stats.Usr != 10327 {
+		t.Error("usr should be 10327 but is", stats.Usr)
 	}
-	if stats.nice != 621 {
-		t.Error("nice should be 621 but is", stats.nice)
+	if stats.Nice != 621 {
+		t.Error("nice should be 621 but is", stats.Nice)
 	}
-	if stats.sys != 4341 {
-		t.Error("sys should be 4341 but is", stats.sys)
+	if stats.Sys != 4341 {
+		t.Error("sys should be 4341 but is", stats.Sys)
 	}
-	if stats.idle != 21223299 {
-		t.Error("idle should be 21223299 but is", stats.idle)
+	if stats.Idle != 21223299 {
+		t.Error("idle should be 21223299 but is", stats.Idle)
 	}
-	if stats.iowait != 2092 {
-		t.Error("iowait should be 2092 but is", stats.iowait)
+	if stats.Iowait != 2092 {
+		t.Error("iowait should be 2092 but is", stats.Iowait)
 	}
-	if stats.irq != 2 {
-		t.Error("irq should be 2 but is", stats.irq)
+	if stats.Irq != 2 {
+		t.Error("irq should be 2 but is", stats.Irq)
 	}
-	if stats.softirq != 643 {
-		t.Error("softirq should be 643 but is", stats.softirq)
+	if stats.Softirq != 643 {
+		t.Error("softirq should be 643 but is", stats.Softirq)
 	}
-	if stats.steal != 6 {
-		t.Error("steal should be 6 but is", stats.steal)
+	if stats.Steal != 6 {
+		t.Error("steal should be 6 but is", stats.Steal)
 	}
-	if stats.guest != 7 {
-		t.Error("guest should be 7 but is", stats.guest)
+	if stats.Guest != 7 {
+		t.Error("guest should be 7 but is", stats.Guest)
 	}
-	if stats.guestNice != 8 {
-		t.Error("guestNice should be 8 but is", stats.guestNice)
+	if stats.GuestNice != 8 {
+		t.Error("guestNice should be 8 but is", stats.GuestNice)
 	}
-	if stats.ctxt != 2752498 {
-		t.Error("ctxt should be 2752498 but is", stats.ctxt)
+	if stats.Ctxt != 2752498 {
+		t.Error("ctxt should be 2752498 but is", stats.Ctxt)
 	}
-	if stats.procsTotal != 26946 {
-		t.Error("procsTotal should be 26946 but is", stats.procsTotal)
+	if stats.ProcsTotal != 26946 {
+		t.Error("procsTotal should be 26946 but is", stats.ProcsTotal)
 	}
-	if stats.procsRunning != 2 {
-		t.Error("procsRunning should be 2 but is", stats.procsRunning)
+	if stats.ProcsRunning != 2 {
+		t.Error("procsRunning should be 2 but is", stats.ProcsRunning)
 	}
-	if stats.procsBlocked != 3 {
-		t.Error("procsBlocked should be 3 but is", stats.procsBlocked)
+	if stats.ProcsBlocked != 3 {
+		t.Error("procsBlocked should be 3 but is", stats.ProcsBlocked)
 	}
 }

@@ -65,12 +65,18 @@ type ProcStats struct {
 
 type ProcStatsMap map[int]*ProcStats
 
+// super not thread safe but GC friendly way to reuse this string slice
+var splitParts []string
+
 // you might think that we could split on space, but due to what can at best be called
 // a shortcoming of the /proc/pid/stat format, the comm field can have unescaped spaces, parens, etc.
 // This may be a bit paranoid, because even many common tools like htop do not handle this case well.
 func procPidStatSplit(line string) []string {
 	line = strings.TrimSpace(line)
-	parts := make([]string, 52)
+
+	if splitParts == nil {
+		splitParts = make([]string, 52)
+	}
 
 	partnum := 0
 	strpos := 0
@@ -84,7 +90,7 @@ func procPidStatSplit(line string) []string {
 	for ; strpos < len(line); strpos++ {
 		if inword {
 			if line[strpos] == space && (groupchar == space || line[strpos-1] == groupchar) {
-				parts[partnum] = line[start:strpos]
+				splitParts[partnum] = line[start:strpos]
 				partnum++
 				start = strpos
 				inword = false
@@ -108,10 +114,14 @@ func procPidStatSplit(line string) []string {
 	}
 
 	if inword {
-		parts[partnum] = line[start:strpos]
+		splitParts[partnum] = line[start:strpos]
+		partnum++
 	}
 
-	return parts
+	for ; partnum < 52; partnum++ {
+		splitParts[partnum] = ""
+	}
+	return splitParts
 }
 
 // ProcStatsReader reads and parses /proc/[pid]/stat for all of pids

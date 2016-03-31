@@ -78,6 +78,7 @@ func ReadFileLines(filename string) ([]string, error) {
 		return nil, err
 	}
 
+	// TODO - these next two lines cause more GC than I expected
 	fileStr := strings.TrimSpace(string(file))
 	return strings.Split(fileStr, "\n"), nil
 }

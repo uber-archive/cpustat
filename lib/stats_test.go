@@ -27,17 +27,17 @@ import (
 )
 
 func TestStripSpecial(t *testing.T) {
-	ret1 := strings.Map(stripSpecial, "1 2 3 4 5")
+	ret1 := strings.Map(StripSpecial, "1 2 3 4 5")
 	if ret1 != "1 2 3 4 5" {
 		t.Error("string was modified and shouldn't have been")
 	}
 
-	ret2 := strings.Map(stripSpecial, "aaa (bce) efg")
+	ret2 := strings.Map(StripSpecial, "aaa (bce) efg")
 	if ret2 != "aaa bce efg" {
 		t.Error("string was not stripped correctly")
 	}
 
-	ret3 := strings.Map(stripSpecial, "[aaa] (bce) efg")
+	ret3 := strings.Map(StripSpecial, "[aaa] (bce) efg")
 	if ret3 != "aaa bce efg" {
 		t.Error("string was not stripped correctly")
 	}

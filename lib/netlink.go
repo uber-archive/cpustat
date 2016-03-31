@@ -55,44 +55,22 @@ func stringFromBytes(c []byte) string {
 // Because of reflection overhead, the main payload is not read into a big struct.
 // It'd probably also be faster to convert the header reading to use the same technique.
 func parseResponse(msg syscall.NetlinkMessage) (*TaskStats, string, error) {
-	var err error
-
-	buf := bytes.NewBuffer(msg.Data)
-	var genHeader netlink.GenlMsghdr
-	err = binary.Read(buf, netlink.SystemEndianness, &genHeader)
-	if err != nil {
-		return nil, "", err
-	}
-	var attr syscall.RtAttr
-
-	err = binary.Read(buf, netlink.SystemEndianness, &attr)
-	if err != nil {
-		return nil, "", err
-	}
-
-	err = binary.Read(buf, netlink.SystemEndianness, &attr)
-	if err != nil {
-		return nil, "", err
-	}
-
-	var tgid uint32
-	err = binary.Read(buf, netlink.SystemEndianness, &tgid)
-	if err != nil {
-		return nil, "", err
-	}
-
-	err = binary.Read(buf, netlink.SystemEndianness, &attr)
-	if err != nil {
-		return nil, "", err
-	}
-
-	payload := buf.Bytes()
-	offset := 0
+	var offset int
+	payload := msg.Data
 	endian := netlink.SystemEndianness
+
 	var stats TaskStats
 	stats.Capturetime = time.Now()
 
 	// these offsets and padding will break if struct taskstats ever changes
+	// gen header 0-3
+	// attr 4-7
+	// attr 8-11
+	tgid := endian.Uint32(payload[12:16])
+	// attr 16-19
+
+	offset = 20
+
 	offset += 2 // version
 	offset += 2 // 2 byte padding
 	offset += 4 // exit code
@@ -209,44 +187,40 @@ var (
 	globalSeq        = uint32(0)
 )
 
-// go-netlink wrote and re-wrote the message, once for genl and again for nl.
-// This just writes it once, and skips the expensive attr encoding.
-// eventually this should completely replace go-netlink
+// Send a genl taskstats message and hope that Linux doesn't change this layout in the future
 func sendCmdMessage(conn *NLConn, pid int) error {
 	globalSeq++
 
-	// payload of this message is genl header + a single nl attribute
-	attrBytes := make([]byte, 8)
-	attrBytes[0] = 8
-	attrBytes[1] = 0
-	binary.LittleEndian.PutUint16(attrBytes[2:], genl.TASKSTATS_CMD_ATTR_PID)
-	binary.LittleEndian.PutUint32(attrBytes[4:], uint32(pid))
-
-	msg := netlink.GenericNetlinkMessage{}
 	// this packet: is nl header(16) + genl header(4) + attribute(8) = 28
-	msg.Header.Len = uint32(syscall.NLMSG_HDRLEN + 4 + len(attrBytes))
-	msg.Header.Type = conn.family
-	msg.Header.Flags = syscall.NLM_F_REQUEST
-	msg.Header.Seq = globalSeq
-	msg.Header.Pid = uint32(conn.pid)
-	msg.GenHeader.Command = genl.TASKSTATS_CMD_GET
-	msg.GenHeader.Version = genl.TASKSTATS_GENL_VERSION
-	// don't set reserved because it's reserved
+	outBytes := make([]byte, 28)
 
-	outBuf := bytes.NewBuffer([]byte{})
-	binary.Write(outBuf, systemEndianness, msg.Header)
-	binary.Write(outBuf, systemEndianness, msg.GenHeader)
-	outBuf.Write(attrBytes)
+	// NL header
+	binary.LittleEndian.PutUint32(outBytes, uint32(syscall.NLMSG_HDRLEN+4+8)) // len: 4 for genl, 8 for attr
+	binary.LittleEndian.PutUint16(outBytes[4:], conn.family)                  // type
+	binary.LittleEndian.PutUint16(outBytes[6:], syscall.NLM_F_REQUEST)        // flags
+	binary.LittleEndian.PutUint32(outBytes[8:], globalSeq)                    // seq
+	binary.LittleEndian.PutUint32(outBytes[12:], uint32(conn.pid))            // pid
 
-	_, err := conn.sock.Write(outBuf.Bytes())
+	// genl header
+	outBytes[16] = genl.TASKSTATS_CMD_GET      // command
+	outBytes[17] = genl.TASKSTATS_GENL_VERSION // version
+	// 18 and 19 are reserved
+
+	// attribute can be many things, but this one is 8 bytes of pure joy:
+	//    len uint16 (always 8)
+	//    cmd uint16 (always genl.TASKSTATS_CMD_ATTR_PID)
+	//    pid uint32 actual pid we want
+	binary.LittleEndian.PutUint16(outBytes[20:], 8)
+	binary.LittleEndian.PutUint16(outBytes[22:], genl.TASKSTATS_CMD_ATTR_PID)
+	binary.LittleEndian.PutUint32(outBytes[24:], uint32(pid))
+
+	_, err := conn.sock.Write(outBytes)
 	return err
 }
 
 func TaskStatsLookupPid(conn *NLConn, pid int) (*TaskStats, string, error) {
 	sendCmdMessage(conn, pid)
-	// cmd := cmdMessage(conn.family, pid)
-	//	netlink.WriteMessage(conn.sock, &cmd)
-	res, err := netlink.ReadMessage(conn.sock)
+	res, err := netlink.ReadMessage(conn.sock) // TODO - this is too slow
 	if err != nil {
 		panic(err)
 	}
