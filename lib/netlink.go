@@ -209,28 +209,18 @@ var (
 	globalSeq        = uint32(0)
 )
 
-// go-netlink calls os.getpid for every message, which is another wasted system call.
-// This is roughly the same code except re-using the pid.
-func cmdMessage(family uint16, pid int) (msg netlink.GenericNetlinkMessage) {
-	msg.Header.Type = family
-	msg.Header.Flags = syscall.NLM_F_REQUEST
-	msg.GenHeader.Command = genl.TASKSTATS_CMD_GET
-	msg.GenHeader.Version = genl.TASKSTATS_GENL_VERSION
-	buf := bytes.NewBuffer([]byte{})
-	netlink.PutAttribute(buf, genl.TASKSTATS_CMD_ATTR_PID, uint32(pid))
-	msg.Data = buf.Bytes()
-	return msg
-}
-
 // go-netlink wrote and re-wrote the message, once for genl and again for nl.
-// This just writes it once.
+// This just writes it once, and skips the expensive attr encoding.
+// eventually this should completely replace go-netlink
 func sendCmdMessage(conn *NLConn, pid int) error {
 	globalSeq++
 
 	// payload of this message is genl header + a single nl attribute
-	attrBuf := bytes.NewBuffer([]byte{})
-	netlink.PutAttribute(attrBuf, genl.TASKSTATS_CMD_ATTR_PID, uint32(pid))
-	attrBytes := attrBuf.Bytes()
+	attrBytes := make([]byte, 8)
+	attrBytes[0] = 8
+	attrBytes[1] = 0
+	binary.LittleEndian.PutUint16(attrBytes[2:], genl.TASKSTATS_CMD_ATTR_PID)
+	binary.LittleEndian.PutUint32(attrBytes[4:], uint32(pid))
 
 	msg := netlink.GenericNetlinkMessage{}
 	// this packet: is nl header(16) + genl header(4) + attribute(8) = 28
