@@ -55,12 +55,12 @@ func main() {
 	var jiffy = flag.Int("jiffy", 100, "length of a jiffy")
 	var useTui = flag.Bool("t", false, "use fancy terminal mode")
 
+	flag.Parse()
+
 	if os.Geteuid() != 0 {
 		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
 		os.Exit(1)
 	}
-
-	flag.Parse()
 
 	if *interval <= 10 {
 		fmt.Println("The minimum sampling interval is 10ms")
