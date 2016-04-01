@@ -23,7 +23,7 @@
 // some environments. It would be nice if there was some way to let people extend these
 // rules based on how they run their programs.
 
-package main
+package cpustat
 
 import (
 	"bytes"
@@ -31,14 +31,14 @@ import (
 	"strings"
 )
 
-type cmdline struct {
-	parts    []string
-	friendly string
+type Cmdline struct {
+	Parts    []string
+	Friendly string
 }
 
-type cmdlineMap map[int]*cmdline
+type CmdlineMap map[int]*Cmdline
 
-func updateCmdline(cmds cmdlineMap, pid int, comm string) {
+func updateCmdline(cmds CmdlineMap, pid int, comm string) {
 	nullSep := []byte{0}
 	spaceSep := []byte{32}
 
@@ -47,17 +47,17 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 		return
 	}
 
-	newCmdline := cmdline{}
+	newCmdline := Cmdline{}
 	cmds[pid] = &newCmdline
 
 	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", pid))
 	if err != nil { // proc exited before we could check, or some other even worse problem
-		newCmdline.friendly = comm
+		newCmdline.Friendly = comm
 		return
 	}
 
 	if len(raw) == 0 {
-		newCmdline.friendly = comm
+		newCmdline.Friendly = comm
 		return
 	}
 
@@ -66,35 +66,35 @@ func updateCmdline(cmds cmdlineMap, pid int, comm string) {
 	if (len(parts) == 2 && len(parts[1]) == 0) || len(parts) == 1 {
 		parts = bytes.Split(parts[0], spaceSep)
 	}
-	newCmdline.parts = make([]string, 0, len(parts))
+	newCmdline.Parts = make([]string, 0, len(parts))
 	for _, part := range parts {
 		if len(part) > 0 {
-			newCmdline.parts = append(newCmdline.parts, string(part))
+			newCmdline.Parts = append(newCmdline.Parts, string(part))
 		}
 	}
 
-	pathParts := strings.Split(newCmdline.parts[0], "/")
+	pathParts := strings.Split(newCmdline.Parts[0], "/")
 	lastPath := pathParts[len(pathParts)-1]
 	switch lastPath {
 	case "python":
-		newCmdline.friendly = resolvePython(newCmdline.parts)
+		newCmdline.Friendly = resolvePython(newCmdline.Parts)
 	case "docker":
-		newCmdline.friendly = resolveDocker(newCmdline.parts)
+		newCmdline.Friendly = resolveDocker(newCmdline.Parts)
 	case "java":
-		newCmdline.friendly = resolveJava(newCmdline.parts)
+		newCmdline.Friendly = resolveJava(newCmdline.Parts)
 	case "sh", "bash":
-		newCmdline.friendly = resolveSh(newCmdline.parts)
+		newCmdline.Friendly = resolveSh(newCmdline.Parts)
 	case "xargs":
-		newCmdline.friendly = resolveXargs(newCmdline.parts)
+		newCmdline.Friendly = resolveXargs(newCmdline.Parts)
 	case "node0.10", "node":
-		newCmdline.friendly = resolveNode(newCmdline.parts)
+		newCmdline.Friendly = resolveNode(newCmdline.Parts)
 	case "uwsgi":
-		newCmdline.friendly = resolveUwsgi(newCmdline.parts)
+		newCmdline.Friendly = resolveUwsgi(newCmdline.Parts)
 	default:
-		newCmdline.friendly = resolveDefault(newCmdline.parts, comm)
+		newCmdline.Friendly = resolveDefault(newCmdline.Parts, comm)
 	}
 
-	newCmdline.friendly = strings.Map(stripSpecial, newCmdline.friendly)
+	newCmdline.Friendly = strings.Map(StripSpecial, newCmdline.Friendly)
 }
 
 func resolveUwsgi(parts []string) string {

@@ -40,12 +40,10 @@ import (
 	"runtime/pprof"
 	"sort"
 	"time"
+
+	lib "github.com/uber-common/cpustat/lib"
 )
 
-// these are for the histogram library which we don't really need anyway
-const histMin = 0
-const histMax = 100000000
-const histSigFigs = 2
 const maxProcsToScan = 2048 // upper bound on proc table size
 
 func main() {
@@ -57,12 +55,12 @@ func main() {
 	var jiffy = flag.Int("jiffy", 100, "length of a jiffy")
 	var useTui = flag.Bool("t", false, "use fancy terminal mode")
 
+	flag.Parse()
+
 	if os.Geteuid() != 0 {
 		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
 		os.Exit(1)
 	}
-
-	flag.Parse()
 
 	if *interval <= 10 {
 		fmt.Println("The minimum sampling interval is 10ms")
@@ -100,72 +98,76 @@ func main() {
 			pprof.WriteHeapProfile(f)
 			f.Close()
 		}
+
 		os.Exit(0)
 	}()
 
-	nlConn := NLInit()
+	nlConn := lib.NLInit()
 
 	if *useTui {
 		go tuiInit(uiQuitChan, *interval)
 	}
 
-	cmdNames := make(cmdlineMap)
+	cmdNames := make(lib.CmdlineMap)
 
-	procCur := make(procStatsMap)
-	procPrev := make(procStatsMap)
-	procSum := make(procStatsMap)
-	procHist := make(procStatsHistMap)
+	procCur := make(lib.ProcStatsMap)
+	procPrev := make(lib.ProcStatsMap)
+	procSum := make(lib.ProcStatsMap)
+	procHist := make(lib.ProcStatsHistMap)
 
-	taskCur := make(taskStatsMap)
-	taskPrev := make(taskStatsMap)
-	taskSum := make(taskStatsMap)
-	taskHist := make(taskStatsHistMap)
+	taskCur := make(lib.TaskStatsMap)
+	taskPrev := make(lib.TaskStatsMap)
+	taskSum := make(lib.TaskStatsMap)
+	taskHist := make(lib.TaskStatsHistMap)
 
-	var sysCur *systemStats
-	var sysPrev *systemStats
-	var sysSum *systemStats
-	var sysHist *systemStatsHist
+	var sysCur *lib.SystemStats
+	var sysPrev *lib.SystemStats
+	var sysSum *lib.SystemStats
+	var sysHist *lib.SystemStatsHist
 
 	var t1, t2 time.Time
 
 	// run all scans one time to establish a baseline
-	pids := make(pidlist, 0, maxProcsToScan)
-	getPidList(&pids)
+	pids := make(lib.Pidlist, 0, maxProcsToScan)
+	lib.GetPidList(&pids, maxProcsToScan)
 
 	t1 = time.Now()
 	var err error
-	procPrev = procStatsReader(pids, cmdNames)
-	taskPrev = taskStatsReader(nlConn, pids, cmdNames)
-	if sysPrev, err = systemStatsReader(); err != nil {
+	procPrev = lib.ProcStatsReader(pids, cmdNames)
+	taskPrev = lib.TaskStatsReader(nlConn, pids, cmdNames)
+	if sysPrev, err = lib.SystemStatsReader(); err != nil {
 		log.Fatal(err)
 	}
-	sysSum = &systemStats{}
-	sysHist = &systemStatsHist{}
+	sysSum = &lib.SystemStats{}
+	sysHist = lib.NewSysStatsHist()
 	t2 = time.Now()
 
 	targetSleep := time.Duration(*interval) * time.Millisecond
 	adjustedSleep := targetSleep - t2.Sub(t1)
 
-	topPids := make(pidlist, *topN)
+	topPids := make(lib.Pidlist, *topN)
 	for {
 		for count := 0; count < *samples; count++ {
 			time.Sleep(adjustedSleep)
 
 			t1 = time.Now()
-			getPidList(&pids)
+			lib.GetPidList(&pids, maxProcsToScan)
 
-			procCur = procStatsReader(pids, cmdNames)
-			procDelta := procStatsRecord(*interval, procCur, procPrev, procSum, procHist)
+			procCur = lib.ProcStatsReader(pids, cmdNames)
+			procDelta := lib.ProcStatsRecord(*interval, procCur, procPrev, procSum)
+			lib.UpdateProcStatsHist(procHist, procDelta)
 			procPrev = procCur
 
-			taskCur = taskStatsReader(nlConn, pids, cmdNames)
-			taskDelta := taskStatsRecord(*interval, taskCur, taskPrev, taskSum, taskHist)
+			taskCur = lib.TaskStatsReader(nlConn, pids, cmdNames)
+			taskDelta := lib.TaskStatsRecord(*interval, taskCur, taskPrev, taskSum)
+			lib.UpdateTaskStatsHist(taskHist, taskDelta)
 			taskPrev = taskCur
 
-			if sysCur, err = systemStatsReader(); err != nil {
+			if sysCur, err = lib.SystemStatsReader(); err != nil {
 				log.Fatal(err)
 			}
-			sysDelta := systemStatsRecord(*interval, sysCur, sysPrev, sysSum, sysHist)
+			sysDelta := lib.SystemStatsRecord(*interval, sysCur, sysPrev, sysSum)
+			lib.UpdateSysStatsHist(sysHist, sysDelta)
 			sysPrev = sysCur
 
 			if *useTui {
@@ -186,12 +188,12 @@ func main() {
 		} else {
 			dumpStats(cmdNames, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		}
-		procHist = make(procStatsHistMap)
-		procSum = make(procStatsMap)
-		taskHist = make(taskStatsHistMap)
-		taskSum = make(taskStatsMap)
-		sysHist = &systemStatsHist{}
-		sysSum = &systemStats{}
+		procHist = make(lib.ProcStatsHistMap)
+		procSum = make(lib.ProcStatsMap)
+		taskHist = make(lib.TaskStatsHistMap)
+		taskSum = make(lib.TaskStatsMap)
+		sysHist = lib.NewSysStatsHist()
+		sysSum = &lib.SystemStats{}
 		t2 = time.Now()
 		adjustedSleep = targetSleep - t2.Sub(t1)
 		// If we can't keep up, try to buy ourselves a little headroom by sleeping for a magic number of ms
@@ -204,8 +206,8 @@ func main() {
 // Wrapper to sort histograms by max but remember which pid they are
 type sortHist struct {
 	pid  int
-	proc *procStatsHist
-	task *taskStatsHist
+	proc *lib.ProcStatsHist
+	task *lib.TaskStatsHist
 }
 
 // ByMax sorts stats by max usage
@@ -220,29 +222,30 @@ func (m ByMax) Swap(i, j int) {
 func (m ByMax) Less(i, j int) bool {
 	var maxI, maxJ float64
 
+	// We might have proc stats but no taskstats because of unfortuante timing
 	if m[i].task == nil || m[j].task == nil {
 		maxI = maxList([]float64{
-			float64(m[i].proc.ustime.Max()),
-			float64(m[i].proc.cutime.Max()+m[i].proc.cstime.Max()) / 1000,
+			float64(m[i].proc.Ustime.Max()),
+			float64(m[i].proc.Cutime.Max()+m[i].proc.Cstime.Max()) / 1000,
 		})
 		maxJ = maxList([]float64{
-			float64(m[j].proc.ustime.Max()),
-			float64(m[j].proc.cutime.Max()+m[j].proc.cstime.Max()) / 1000,
+			float64(m[j].proc.Ustime.Max()),
+			float64(m[j].proc.Cutime.Max()+m[j].proc.Cstime.Max()) / 1000,
 		})
 	} else {
 		maxI = maxList([]float64{
-			float64(m[i].proc.ustime.Max()),
-			float64(m[i].proc.cutime.Max()+m[i].proc.cstime.Max()) / 100,
-			float64(m[i].task.cpudelay.Max()) / 1000 / 1000,
-			float64(m[i].task.iowait.Max()) / 1000 / 1000,
-			float64(m[i].task.swap.Max()) / 1000 / 1000,
+			float64(m[i].proc.Ustime.Max()),
+			float64(m[i].proc.Cutime.Max()+m[i].proc.Cstime.Max()) / 100,
+			float64(m[i].task.Cpudelay.Max()) / 1000 / 1000,
+			float64(m[i].task.Iowait.Max()) / 1000 / 1000,
+			float64(m[i].task.Swap.Max()) / 1000 / 1000,
 		})
 		maxJ = maxList([]float64{
-			float64(m[j].proc.ustime.Max()),
-			float64(m[j].proc.cutime.Max()+m[j].proc.cstime.Max()) / 100,
-			float64(m[j].task.cpudelay.Max()) / 1000 / 1000,
-			float64(m[j].task.iowait.Max()) / 1000 / 1000,
-			float64(m[j].task.swap.Max()) / 1000 / 1000,
+			float64(m[j].proc.Ustime.Max()),
+			float64(m[j].proc.Cutime.Max()+m[j].proc.Cstime.Max()) / 100,
+			float64(m[j].task.Cpudelay.Max()) / 1000 / 1000,
+			float64(m[j].task.Iowait.Max()) / 1000 / 1000,
+			float64(m[j].task.Swap.Max()) / 1000 / 1000,
 		})
 	}
 	return maxI > maxJ
@@ -257,7 +260,7 @@ func maxList(list []float64) float64 {
 	return ret
 }
 
-func sortList(procHist procStatsHistMap, taskHist taskStatsHistMap, limit int) []*sortHist {
+func sortList(procHist lib.ProcStatsHistMap, taskHist lib.TaskStatsHistMap, limit int) []*sortHist {
 	var list []*sortHist
 
 	// let's hope that pid is in both sets, otherwise this will blow up
