@@ -76,10 +76,10 @@ func TestTooLarge(t *testing.T) {
 	mkfile(fmt.Sprintf("%s/%s", dirName, "bar"))
 	mkfile(fmt.Sprintf("%s/%s", dirName, "baz"))
 	pids := make(Pidlist, 0)
-	// surprising to me is that Readdirnames with a limit stops at limit - 1
+	// surprising to me is that Readdirnames with a limit sometimes stops at limit - 1
 	GetPidList(&pids, 20)
-	if len(pids) != 19 {
-		t.Error("pidlist should be 19 but is", len(pids))
+	if len(pids) != 19 && len(pids) != 20 {
+		t.Error("pidlist should be 20 or less but is", len(pids))
 	}
 }
 
