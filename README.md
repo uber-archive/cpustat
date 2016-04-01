@@ -1,5 +1,7 @@
 # cpustat - high(er) frequency stats sampling
 
+[![Join the chat at https://gitter.im/uber-common/cpustat](https://badges.gitter.im/uber-common/cpustat.svg)](https://gitter.im/uber-common/cpustat?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Cpustat is a tool for Linux systems to measure performance. You can think of it like a
 fancy sort of "top" that does different things. This project is motived by Brendan Gregg's
 [USE Method](http://www.brendangregg.com/usemethod.html) and tries to expose CPU
