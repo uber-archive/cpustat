@@ -26,6 +26,8 @@ import (
 	"strconv"
 )
 
+var procPath = "/proc"
+
 type Pidlist []int
 
 // We churn the pidlist constantly, so this is an optimization to reuse the underlying list every time.
@@ -36,8 +38,8 @@ func GetPidList(list *Pidlist, maxProcsToScan int) {
 	var procNames []string
 	var err error
 
-	if procDir, err = os.Open("/proc"); err != nil {
-		log.Fatal("Open dir /proc: ", err)
+	if procDir, err = os.Open(procPath); err != nil {
+		log.Fatalf("Open dir %s:%s", procPath, err)
 	}
 	if procNames, err = procDir.Readdirnames(maxProcsToScan); err != nil {
 		log.Fatal("pidlist Readdirnames: ", err)
