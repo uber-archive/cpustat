@@ -18,10 +18,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Integration with go-netlink
-// Sending and receiving of taskstats messages is reimplemented here for performance reasons.
-// We use go-netlink to fetch the family id and set up the socket.
-
 package cpustat
 
 // #include <linux/taskstats.h>
@@ -35,8 +31,6 @@ import (
 	"os"
 	"syscall"
 	"time"
-
-	netlink "github.com/remyoudompheng/go-netlink"
 )
 
 // convert a byte slice of a null terminated C string into a Go string
@@ -72,7 +66,7 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, string, error) {
 	if nlmsgs[0].Header.Type == syscall.NLMSG_ERROR {
 		var errno int32
 		buf := bytes.NewBuffer(nlmsgs[0].Data)
-		_ = binary.Read(buf, netlink.SystemEndianness, &errno)
+		_ = binary.Read(buf, binary.LittleEndian, &errno)
 		if errno == -1 {
 			panic("no permission")
 		}
@@ -81,7 +75,7 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, string, error) {
 
 	var offset int
 	payload := nlmsgs[0].Data
-	endian := netlink.SystemEndianness
+	endian := binary.LittleEndian
 
 	var stats TaskStats
 	stats.Capturetime = time.Now()
@@ -230,7 +224,7 @@ func readGetFamilyMessage(conn *NLConn) (uint16, error) {
 	if nlmsgs[0].Header.Type == syscall.NLMSG_ERROR {
 		var errno int32
 		buf := bytes.NewBuffer(nlmsgs[0].Data)
-		_ = binary.Read(buf, netlink.SystemEndianness, &errno)
+		_ = binary.Read(buf, binary.LittleEndian, &errno)
 		return 0, fmt.Errorf("Netlink error code %d getting TASKSTATS family id", errno)
 	}
 	skipLen := binary.LittleEndian.Uint16(nlmsgs[0].Data[4:])
