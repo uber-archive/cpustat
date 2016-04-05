@@ -21,7 +21,6 @@
 package cpustat
 
 // #include <linux/taskstats.h>
-// #include <linux/genetlink.h>
 import "C"
 
 import (
@@ -31,6 +30,15 @@ import (
 	"os"
 	"syscall"
 	"time"
+)
+
+// On older Linux systems, including linux/genetlink.h and taskstats.h doesn't compile.
+// To fix this, we define these three symbols here. Note that they just happen to be
+// sequential, but they are from 3 different enums.
+const (
+	CTRL_ATTR_FAMILY_ID   = 1
+	CTRL_ATTR_FAMILY_NAME = 2
+	CTRL_CMD_GETFAMILY    = 3
 )
 
 // convert a byte slice of a null terminated C string into a Go string
@@ -229,7 +237,7 @@ func readGetFamilyMessage(conn *NLConn) (uint16, error) {
 	}
 	skipLen := binary.LittleEndian.Uint16(nlmsgs[0].Data[4:])
 	payloadType := binary.LittleEndian.Uint16(nlmsgs[0].Data[skipLen+8:])
-	if payloadType != C.CTRL_ATTR_FAMILY_ID {
+	if payloadType != CTRL_ATTR_FAMILY_ID {
 		return 0, fmt.Errorf("Netlink error: got unexpected genl attribute: %d", payloadType)
 	}
 	genlFamily := binary.LittleEndian.Uint16(nlmsgs[0].Data[skipLen+8+2:])
@@ -253,7 +261,7 @@ func sendGetFamilyCmdMessage(conn *NLConn) error {
 	binary.LittleEndian.PutUint32(outBytes[12:], uint32(conn.pid))             // pid
 
 	// genl header
-	outBytes[16] = C.CTRL_CMD_GETFAMILY     // command
+	outBytes[16] = CTRL_CMD_GETFAMILY       // command
 	outBytes[17] = C.TASKSTATS_GENL_VERSION // version
 	// 18 and 19 are reserved
 
@@ -262,7 +270,7 @@ func sendGetFamilyCmdMessage(conn *NLConn) error {
 	//    cmd uint16 (always genl.TASKSTATS_CMD_ATTR_PID)
 	//    pid uint32 actual pid we want
 	binary.LittleEndian.PutUint16(outBytes[20:], 11+syscall.NLA_HDRLEN)
-	binary.LittleEndian.PutUint16(outBytes[22:], C.CTRL_ATTR_FAMILY_NAME)
+	binary.LittleEndian.PutUint16(outBytes[22:], CTRL_ATTR_FAMILY_NAME)
 	copy(outBytes[24:], genlName)
 	_, err := conn.Write(outBytes)
 	return err
