@@ -25,6 +25,7 @@
 package cpustat
 
 // #include <linux/taskstats.h>
+// #include <linux/genetlink.h>
 import "C"
 
 import (
@@ -36,7 +37,6 @@ import (
 	"time"
 
 	netlink "github.com/remyoudompheng/go-netlink"
-	"github.com/remyoudompheng/go-netlink/genl"
 )
 
 // convert a byte slice of a null terminated C string into a Go string
@@ -52,11 +52,35 @@ func stringFromBytes(c []byte) string {
 	return string(c[:nullPos])
 }
 
-// Because of reflection overhead, the main payload is not read into a big struct.
-// It'd probably also be faster to convert the header reading to use the same technique.
-func parseResponse(msg syscall.NetlinkMessage) (*TaskStats, string, error) {
+func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, string, error) {
+	inBytes, err := conn.Read()
+	if err != nil {
+		return nil, "", err
+	}
+	if len(inBytes) <= 0 {
+		return nil, "", fmt.Errorf("short read requesting taskstats info: %d bytes", len(inBytes))
+	}
+	nlmsgs, err := syscall.ParseNetlinkMessage(inBytes)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if len(nlmsgs) != 1 {
+		panic(fmt.Sprint("got unexpected response size from get genl taskstats request: ", len(nlmsgs)))
+	}
+
+	if nlmsgs[0].Header.Type == syscall.NLMSG_ERROR {
+		var errno int32
+		buf := bytes.NewBuffer(nlmsgs[0].Data)
+		_ = binary.Read(buf, netlink.SystemEndianness, &errno)
+		if errno == -1 {
+			panic("no permission")
+		}
+		return nil, "", fmt.Errorf("Netlink error code %d getting taskstats for %d", errno, nlmsgs[0].Header.Pid)
+	}
+
 	var offset int
-	payload := msg.Data
+	payload := nlmsgs[0].Data
 	endian := netlink.SystemEndianness
 
 	var stats TaskStats
@@ -145,50 +169,13 @@ func parseResponse(msg syscall.NetlinkMessage) (*TaskStats, string, error) {
 	return &stats, comm, nil
 }
 
-// NetlinkError should only be used in this file, is duplicated from go-netlink
-type NetlinkError struct {
-	msg  string
-	Code int32
-}
-
-func (e *NetlinkError) Error() string {
-	return e.msg
-}
-
-func parseError(msg syscall.NetlinkMessage) error {
-	var errno int32
-	buf := bytes.NewBuffer(msg.Data)
-	err := binary.Read(buf, netlink.SystemEndianness, &errno)
-	if err != nil {
-		return err
-	}
-	return &NetlinkError{"netlink read", errno}
-}
-
-func parseTaskStats(msg syscall.NetlinkMessage) (*TaskStats, string, error) {
-	// print a warning if we got an unexpected message type
-	switch msg.Header.Type {
-	case syscall.NLMSG_NOOP:
-		fmt.Printf("NLMSG_NOOP")
-		return nil, "", nil
-	case syscall.NLMSG_ERROR:
-		return nil, "", parseError(msg)
-	case syscall.NLMSG_DONE:
-		fmt.Printf("NLMSG_DONE\n")
-		return nil, "", nil
-	case syscall.NLMSG_OVERRUN:
-		fmt.Printf("NLMSG_OVERRUN\n")
-	}
-	return parseResponse(msg)
-}
-
 var (
 	systemEndianness = binary.LittleEndian
 	globalSeq        = uint32(0)
 )
 
 // Send a genl taskstats message and hope that Linux doesn't change this layout in the future
-func sendCmdMessage(conn *NLConn, pid int) error {
+func sendGetTaskstatsMessage(conn *NLConn, pid int) error {
 	globalSeq++
 
 	// this packet: is nl header(16) + genl header(4) + attribute(8) = 28
@@ -196,67 +183,159 @@ func sendCmdMessage(conn *NLConn, pid int) error {
 
 	// NL header
 	binary.LittleEndian.PutUint32(outBytes, uint32(syscall.NLMSG_HDRLEN+4+8)) // len: 4 for genl, 8 for attr
-	binary.LittleEndian.PutUint16(outBytes[4:], conn.family)                  // type
+	binary.LittleEndian.PutUint16(outBytes[4:], conn.genlFamily)              // type
 	binary.LittleEndian.PutUint16(outBytes[6:], syscall.NLM_F_REQUEST)        // flags
 	binary.LittleEndian.PutUint32(outBytes[8:], globalSeq)                    // seq
 	binary.LittleEndian.PutUint32(outBytes[12:], uint32(conn.pid))            // pid
 
 	// genl header
-	outBytes[16] = genl.TASKSTATS_CMD_GET      // command
-	outBytes[17] = genl.TASKSTATS_GENL_VERSION // version
+	outBytes[16] = C.TASKSTATS_CMD_GET      // command
+	outBytes[17] = C.TASKSTATS_GENL_VERSION // version
+	// 18 and 19 are reserved
+
+	// attribute can be many things, but this one is 8 bytes of pure joy:
+	//    len uint16 (always 8)
+	//    cmd uint16 (always C.TASKSTATS_CMD_ATTR_PID)
+	//    pid uint32 actual pid we want
+	binary.LittleEndian.PutUint16(outBytes[20:], 8)
+	binary.LittleEndian.PutUint16(outBytes[22:], C.TASKSTATS_CMD_ATTR_PID)
+	binary.LittleEndian.PutUint32(outBytes[24:], uint32(pid))
+
+	_, err := conn.Write(outBytes)
+	return err
+}
+
+func TaskStatsLookupPid(conn *NLConn, pid int) (*TaskStats, string, error) {
+	sendGetTaskstatsMessage(conn, pid)
+	return readGetTaskstatsMessage(conn)
+}
+
+func readGetFamilyMessage(conn *NLConn) (uint16, error) {
+	inBytes, err := conn.Read()
+	if err != nil {
+		return 0, err
+	}
+	if len(inBytes) <= 0 {
+		return 0, fmt.Errorf("short read requesting genl family name: %d bytes", len(inBytes))
+	}
+	nlmsgs, err := syscall.ParseNetlinkMessage(inBytes)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(nlmsgs) != 1 {
+		panic(fmt.Sprint("got unexpected response size from get genl family request: ", len(nlmsgs)))
+	}
+
+	if nlmsgs[0].Header.Type == syscall.NLMSG_ERROR {
+		var errno int32
+		buf := bytes.NewBuffer(nlmsgs[0].Data)
+		_ = binary.Read(buf, netlink.SystemEndianness, &errno)
+		return 0, fmt.Errorf("Netlink error code %d getting TASKSTATS family id", errno)
+	}
+	skipLen := binary.LittleEndian.Uint16(nlmsgs[0].Data[4:])
+	payloadType := binary.LittleEndian.Uint16(nlmsgs[0].Data[skipLen+8:])
+	if payloadType != C.CTRL_ATTR_FAMILY_ID {
+		return 0, fmt.Errorf("Netlink error: got unexpected genl attribute: %d", payloadType)
+	}
+	genlFamily := binary.LittleEndian.Uint16(nlmsgs[0].Data[skipLen+8+2:])
+	return genlFamily, nil
+}
+
+// Send a genl taskstats message to get all genl families
+func sendGetFamilyCmdMessage(conn *NLConn) error {
+	globalSeq++
+	genlName := []byte("TASKSTATS")
+	genlName = append(genlName, 0, 0, 0)
+
+	// this packet: is nl header(16) + genl header(4) + attribute(16) = 36
+	outBytes := make([]byte, 36)
+
+	// NL header
+	binary.LittleEndian.PutUint32(outBytes, uint32(syscall.NLMSG_HDRLEN+4+16)) // len: 4 for genl, 16 for attr
+	binary.LittleEndian.PutUint16(outBytes[4:], conn.family)                   // type
+	binary.LittleEndian.PutUint16(outBytes[6:], syscall.NLM_F_REQUEST)         // flags
+	binary.LittleEndian.PutUint32(outBytes[8:], globalSeq)                     // seq
+	binary.LittleEndian.PutUint32(outBytes[12:], uint32(conn.pid))             // pid
+
+	// genl header
+	outBytes[16] = C.CTRL_CMD_GETFAMILY     // command
+	outBytes[17] = C.TASKSTATS_GENL_VERSION // version
 	// 18 and 19 are reserved
 
 	// attribute can be many things, but this one is 8 bytes of pure joy:
 	//    len uint16 (always 8)
 	//    cmd uint16 (always genl.TASKSTATS_CMD_ATTR_PID)
 	//    pid uint32 actual pid we want
-	binary.LittleEndian.PutUint16(outBytes[20:], 8)
-	binary.LittleEndian.PutUint16(outBytes[22:], genl.TASKSTATS_CMD_ATTR_PID)
-	binary.LittleEndian.PutUint32(outBytes[24:], uint32(pid))
-
-	_, err := conn.sock.Write(outBytes)
+	binary.LittleEndian.PutUint16(outBytes[20:], 11+syscall.NLA_HDRLEN)
+	binary.LittleEndian.PutUint16(outBytes[22:], C.CTRL_ATTR_FAMILY_NAME)
+	copy(outBytes[24:], genlName)
+	_, err := conn.Write(outBytes)
 	return err
 }
 
-func TaskStatsLookupPid(conn *NLConn, pid int) (*TaskStats, string, error) {
-	sendCmdMessage(conn, pid)
-	res, err := netlink.ReadMessage(conn.sock) // TODO - this is too slow
+func getGenlFamily(conn *NLConn) uint16 {
+	err := sendGetFamilyCmdMessage(conn)
 	if err != nil {
 		panic(err)
 	}
-	parsed, comm, err := parseTaskStats(res)
+	gfamily, err := readGetFamilyMessage(conn)
 	if err != nil {
-		nerr := err.(*NetlinkError)
-		if nerr.Code == -1 {
-			panic("No permission")
-		} else {
-			return nil, "", &NetlinkError{"proc missing", nerr.Code}
-		}
-	} else {
-		return parsed, comm, nil
+		panic(err)
 	}
+	return gfamily
 }
 
 // NLConn holds the context necessary to pass around to external callers
 type NLConn struct {
-	family uint16
-	sock   *netlink.NetlinkConn
-	pid    int
+	fd         int
+	family     uint16
+	genlFamily uint16
+	addr       syscall.SockaddrNetlink
+	pid        int
+	readBuf    []byte
+}
+
+func (s NLConn) Read() ([]byte, error) {
+	n, _, err := syscall.Recvfrom(s.fd, s.readBuf, 0)
+	return s.readBuf[:n], os.NewSyscallError("recvfrom", err)
+}
+
+func (s NLConn) Write(b []byte) (n int, err error) {
+	e := syscall.Sendto(s.fd, b, 0, &s.addr)
+	return len(b), os.NewSyscallError("sendto", e)
+}
+
+func (s NLConn) Close() error {
+	e := syscall.Close(s.fd)
+	return os.NewSyscallError("close", e)
+}
+
+func (s NLConn) String() string {
+	return fmt.Sprintf("fd=%d family=%d genlFamily=%d pid=%d", s.fd, s.family, s.genlFamily, s.pid)
 }
 
 // NLInit sets up a new taskstats netlink socket
+// All errors are fatal.
 func NLInit() *NLConn {
-	idMap, err := genl.GetFamilyIDs()
+	fd, err := syscall.Socket(syscall.AF_NETLINK, syscall.SOCK_DGRAM, syscall.NETLINK_GENERIC)
 	if err != nil {
-		panic(err)
+		panic(os.NewSyscallError("socket", err))
 	}
-	taskstatsGenlName := string(C.TASKSTATS_GENL_NAME)
-	family := idMap[taskstatsGenlName]
-
-	sock, err := netlink.DialNetlink("generic", 0)
+	conn := NLConn{}
+	conn.fd = fd
+	conn.family = syscall.NETLINK_GENERIC
+	conn.addr.Family = syscall.AF_NETLINK
+	conn.addr.Pid = 0
+	conn.addr.Groups = 0
+	conn.pid = os.Getpid()
+	conn.readBuf = make([]byte, 4096)
+	err = syscall.Bind(fd, &conn.addr)
 	if err != nil {
-		panic(err)
+		panic(os.NewSyscallError("bind", err))
 	}
 
-	return &NLConn{family, sock, os.Getpid()}
+	conn.genlFamily = getGenlFamily(&conn)
+
+	return &conn
 }
