@@ -1,0 +1,23 @@
+hash: 6424cc85e8e4917ccdac2ca862dd3384d7696933ae0e6db22da9b580fcee24f3
+updated: 2016-04-05T19:40:58.772978835-07:00
+imports:
+- name: github.com/codahale/hdrhistogram
+  version: 360314142131c2043d1346f197f86435b287c6da
+- name: github.com/mattn/go-runewidth
+  version: d6bea18f789704b5f83375793155289da36a3c7f
+- name: github.com/nsf/termbox-go
+  version: 362329b0aa6447eadd52edd8d660ec1dff470295
+- name: github.com/uber-common/termui
+  version: 5eb574feb7a303b1df0dc361844a56eb04fc8f55
+- name: github.com/uber/tchannel-go
+  version: 3e3e53962cc103863e644ac84dcda5169ead0467
+  subpackages:
+  - raw
+  - atomic
+  - tnet
+  - typed
+- name: golang.org/x/net
+  version: 6c89489cafabcbc76df9dbf84ebf07204673fecf
+  subpackages:
+  - context
+devImports: []

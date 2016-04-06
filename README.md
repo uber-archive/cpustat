@@ -25,9 +25,13 @@ Here are examples of both modes observing the same workload:
 
 ## Installation
 
+To install the latest version of cpustat and all of its dependencies, try this:
+
 ```
 go get github.com/uber-common/cpustat
 ```
+
+If you have `glide`, you can use `glide install` to get consistent dependencies.
 
 ## Usage
 
