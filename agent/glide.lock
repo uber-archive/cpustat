@@ -1,0 +1,21 @@
+hash: f7eb6be826c91385705a40deea421291633b4d78de99604b3e37a045ae23facf
+updated: 2016-04-05T19:31:18.112296067-07:00
+imports:
+- name: github.com/codahale/hdrhistogram
+  version: 360314142131c2043d1346f197f86435b287c6da
+- name: github.com/uber-common/cpustat
+  version: 59c41890705c8647cfb2a8fdaf83c43575322955
+  subpackages:
+  - lib
+- name: github.com/uber/tchannel-go
+  version: 3e3e53962cc103863e644ac84dcda5169ead0467
+  subpackages:
+  - raw
+  - atomic
+  - tnet
+  - typed
+- name: golang.org/x/net
+  version: 6c89489cafabcbc76df9dbf84ebf07204673fecf
+  subpackages:
+  - context
+devImports: []

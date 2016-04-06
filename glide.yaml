@@ -1,0 +1,12 @@
+package: github.com/uber-common/cpustat
+os:
+  - linux
+import:
+- package: github.com/codahale/hdrhistogram
+- package: github.com/uber-common/termui
+- package: github.com/uber/tchannel-go
+  subpackages:
+  - raw
+- package: golang.org/x/net
+  subpackages:
+  - context

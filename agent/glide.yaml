@@ -1,0 +1,11 @@
+package: github.com/uber-common/cpustat/agent
+import:
+- package: github.com/uber-common/cpustat
+  subpackages:
+  - lib
+- package: github.com/uber/tchannel-go
+  subpackages:
+  - raw
+- package: golang.org/x/net
+  subpackages:
+  - context

@@ -1,0 +1,8 @@
+package: github.com/uber-common/cpustat/client
+import:
+- package: github.com/uber-common/cpustat
+  subpackages:
+  - lib
+- package: github.com/uber/tchannel-go
+  subpackages:
+  - raw
