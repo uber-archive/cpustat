@@ -44,12 +44,12 @@ import (
 	lib "github.com/uber-common/cpustat/lib"
 )
 
-const maxProcsToScan = 2048 // upper bound on proc table size
-
 func main() {
 	var interval = flag.Int("i", 200, "interval (ms) between measurements")
 	var samples = flag.Int("s", 10, "sample counts to aggregate for output")
 	var topN = flag.Int("n", 10, "show top N processes")
+	var maxProcsToScan = flag.Int("maxprocs", 2048, "upper limit on process table size")
+
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 	var jiffy = flag.Int("jiffy", 100, "length of a jiffy")
@@ -66,6 +66,7 @@ func main() {
 		fmt.Println("The minimum sampling interval is 10ms")
 		os.Exit(1)
 	}
+	intervalms := uint32(*interval)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -108,7 +109,7 @@ func main() {
 		go tuiInit(uiQuitChan, *interval)
 	}
 
-	cmdNames := make(lib.CmdlineMap)
+	infoMap := make(lib.ProcInfoMap)
 
 	procCur := make(lib.ProcStatsMap)
 	procPrev := make(lib.ProcStatsMap)
@@ -128,13 +129,13 @@ func main() {
 	var t1, t2 time.Time
 
 	// run all scans one time to establish a baseline
-	pids := make(lib.Pidlist, 0, maxProcsToScan)
-	lib.GetPidList(&pids, maxProcsToScan)
+	pids := make(lib.Pidlist, 0, *maxProcsToScan)
+	lib.GetPidList(&pids, *maxProcsToScan)
 
 	t1 = time.Now()
 	var err error
-	procPrev = lib.ProcStatsReader(pids, cmdNames)
-	taskPrev = lib.TaskStatsReader(nlConn, pids, cmdNames)
+	procPrev = lib.ProcStatsReader(pids, infoMap, *maxProcsToScan)
+	taskPrev = lib.TaskStatsReader(nlConn, pids, *maxProcsToScan)
 	if sysPrev, err = lib.SystemStatsReader(); err != nil {
 		log.Fatal(err)
 	}
@@ -151,27 +152,27 @@ func main() {
 			time.Sleep(adjustedSleep)
 
 			t1 = time.Now()
-			lib.GetPidList(&pids, maxProcsToScan)
+			lib.GetPidList(&pids, *maxProcsToScan)
 
-			procCur = lib.ProcStatsReader(pids, cmdNames)
-			procDelta := lib.ProcStatsRecord(*interval, procCur, procPrev, procSum)
+			procCur = lib.ProcStatsReader(pids, infoMap, *maxProcsToScan)
+			procDelta := lib.ProcStatsRecord(intervalms, procCur, procPrev, procSum)
 			lib.UpdateProcStatsHist(procHist, procDelta)
 			procPrev = procCur
 
-			taskCur = lib.TaskStatsReader(nlConn, pids, cmdNames)
-			taskDelta := lib.TaskStatsRecord(*interval, taskCur, taskPrev, taskSum)
+			taskCur = lib.TaskStatsReader(nlConn, pids, *maxProcsToScan)
+			taskDelta := lib.TaskStatsRecord(intervalms, taskCur, taskPrev, taskSum)
 			lib.UpdateTaskStatsHist(taskHist, taskDelta)
 			taskPrev = taskCur
 
 			if sysCur, err = lib.SystemStatsReader(); err != nil {
 				log.Fatal(err)
 			}
-			sysDelta := lib.SystemStatsRecord(*interval, sysCur, sysPrev, sysSum)
+			sysDelta := lib.SystemStatsRecord(intervalms, sysCur, sysPrev, sysSum)
 			lib.UpdateSysStatsHist(sysHist, sysDelta)
 			sysPrev = sysCur
 
 			if *useTui {
-				tuiGraphUpdate(procDelta, sysDelta, taskDelta, topPids, *jiffy, *interval)
+				tuiGraphUpdate(procDelta, sysDelta, taskDelta, topPids, uint32(*jiffy), intervalms)
 			}
 
 			t2 = time.Now()
@@ -184,9 +185,9 @@ func main() {
 		}
 
 		if *useTui {
-			tuiListUpdate(cmdNames, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
+			tuiListUpdate(infoMap, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		} else {
-			dumpStats(cmdNames, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
+			dumpStats(infoMap, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		}
 		procHist = make(lib.ProcStatsHistMap)
 		procSum = make(lib.ProcStatsMap)

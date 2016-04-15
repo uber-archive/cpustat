@@ -21,6 +21,7 @@
 package cpustat
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -44,21 +45,16 @@ func GetPidList(list *Pidlist, maxProcsToScan int) {
 	if procNames, err = procDir.Readdirnames(maxProcsToScan); err != nil {
 		log.Fatal("pidlist Readdirnames: ", err)
 	}
+	if len(procNames) > maxProcsToScan-1 {
+		fmt.Println("proc table truncated because more than", maxProcsToScan, "procs found")
+	}
 
+	*list = (*list)[:0]
 	var pid int
-	i := 0
 	for _, fileName := range procNames {
 		if pid, err = strconv.Atoi(fileName); err != nil {
 			continue
 		}
-		if i >= len(*list) {
-			*list = append(*list, pid)
-		} else {
-			(*list)[i] = pid
-		}
-		i++
-	}
-	if len(*list) > i {
-		*list = (*list)[:i]
+		*list = append(*list, pid)
 	}
 }

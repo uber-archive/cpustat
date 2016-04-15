@@ -97,7 +97,7 @@ func SystemStatsReader() (*SystemStats, error) {
 	return &cur, nil
 }
 
-func SystemStatsRecord(interval int, cur, prev, sum *SystemStats) *SystemStats {
+func SystemStatsRecord(interval uint32, cur, prev, sum *SystemStats) *SystemStats {
 	delta := &SystemStats{}
 
 	sum.CaptureTime = cur.CaptureTime

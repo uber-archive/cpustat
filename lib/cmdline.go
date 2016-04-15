@@ -23,41 +23,87 @@
 // some environments. It would be nice if there was some way to let people extend these
 // rules based on how they run their programs.
 
+// TODO handle these:
+// udocker   85999 13.3  0.3 1742504 417780 ?      Sl   Apr06 933:29 python -m geosnapper.app /var/run/udocker/geosnapper-0.sock 0
+// uber      52832  0.3  0.0 370500 35404 ?        Sl   Apr06  25:34 /usr/bin/python /usr/bin/sortsol_sender docker_daemon-access
+// udocker   46233 53.6  0.0 260308 81976 ?        Rs   Apr08 2190:05 /usr/bin/python /usr/local/bin/celery worker --app=polaris -l INFO -Q polaris -c 5 --logfile=/var/log/udocker/polaris/polaris-celery.log
+// udocker   43061  2.6  0.1 3338048 149152 ?      Sl   Apr09 102:54 /usr/bin/python /usr/local/bin/mastermind-tornado /var/run/udocker/mastermind-3.sock 3
+// nsca      88499  0.0  0.0  40040 12908 ?        S    17:15   0:00 python /usr/local/sbin/nagios_autocheck_submitter --nagios-host=nagioscheck.local.uber.internal --splay 600
+
 package cpustat
 
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"strings"
+	"time"
 )
 
-type Cmdline struct {
-	Parts    []string
-	Friendly string
+type ProcInfo struct {
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	Comm       string   // short name from /proc/pid/stat
+	Cmdline    []string // raw parts from /proc/pid/cmdline
+	Friendly   string   // our magically transformed name
+	Pid        uint64
+	Ppid       uint64
+	Pgrp       int64
+	Session    int64
+	Ttynr      int64
+	Tpgid      int64
+	Flags      uint64
+	Starttime  uint64
+	Nice       int64
+	Rtpriority uint64
+	Policy     uint64
 }
 
-type CmdlineMap map[int]*Cmdline
+type ProcInfoMap map[int]*ProcInfo
 
-func updateCmdline(cmds CmdlineMap, pid int, comm string) {
-	nullSep := []byte{0}
-	spaceSep := []byte{32}
-
-	// if we've seen this before, always use the previous value, even though some programs change
-	if _, ok := cmds[pid]; ok == true {
+func (m ProcInfoMap) MaybePrune(chance float64, pids Pidlist, expiry time.Duration) {
+	if rand.Float64() >= chance {
 		return
 	}
 
-	newCmdline := Cmdline{}
-	cmds[pid] = &newCmdline
+	pidMap := make(map[int]bool)
+	for pid, _ := range pids {
+		pidMap[pid] = true
+	}
+	var removed uint32
+	oldest := time.Now().Add(-expiry) // yes, t.Add(-d) is the way you do this
+	for pid, info := range m {
+		if _, ok := pidMap[pid]; ok == false {
+			if info.LastSeen.Before(oldest) {
+				removed++
+				delete(m, pid)
+			}
+		}
+	}
+	fmt.Println("pruned", removed, "entries from infoMap")
+}
 
-	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+func (p *ProcInfo) init() {
+	p.FirstSeen = time.Now()
+	p.LastSeen = p.FirstSeen
+}
+
+func (p *ProcInfo) touch() {
+	p.LastSeen = time.Now()
+}
+
+func (p *ProcInfo) updateCmdline() {
+	nullSep := []byte{0}
+	spaceSep := []byte{32}
+
+	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", p.Pid))
 	if err != nil { // proc exited before we could check, or some other even worse problem
-		newCmdline.Friendly = comm
+		p.Friendly = p.Comm
 		return
 	}
 
 	if len(raw) == 0 {
-		newCmdline.Friendly = comm
+		p.Friendly = p.Comm
 		return
 	}
 
@@ -66,35 +112,35 @@ func updateCmdline(cmds CmdlineMap, pid int, comm string) {
 	if (len(parts) == 2 && len(parts[1]) == 0) || len(parts) == 1 {
 		parts = bytes.Split(parts[0], spaceSep)
 	}
-	newCmdline.Parts = make([]string, 0, len(parts))
+	p.Cmdline = make([]string, 0, len(parts))
 	for _, part := range parts {
 		if len(part) > 0 {
-			newCmdline.Parts = append(newCmdline.Parts, string(part))
+			p.Cmdline = append(p.Cmdline, string(part))
 		}
 	}
 
-	pathParts := strings.Split(newCmdline.Parts[0], "/")
+	pathParts := strings.Split(p.Cmdline[0], "/")
 	lastPath := pathParts[len(pathParts)-1]
 	switch lastPath {
 	case "python":
-		newCmdline.Friendly = resolvePython(newCmdline.Parts)
+		p.Friendly = resolvePython(p.Cmdline)
 	case "docker":
-		newCmdline.Friendly = resolveDocker(newCmdline.Parts)
+		p.Friendly = resolveDocker(p.Cmdline)
 	case "java":
-		newCmdline.Friendly = resolveJava(newCmdline.Parts)
+		p.Friendly = resolveJava(p.Cmdline)
 	case "sh", "bash":
-		newCmdline.Friendly = resolveSh(newCmdline.Parts)
+		p.Friendly = resolveSh(p.Cmdline)
 	case "xargs":
-		newCmdline.Friendly = resolveXargs(newCmdline.Parts)
+		p.Friendly = resolveXargs(p.Cmdline)
 	case "node0.10", "node":
-		newCmdline.Friendly = resolveNode(newCmdline.Parts)
+		p.Friendly = resolveNode(p.Cmdline)
 	case "uwsgi":
-		newCmdline.Friendly = resolveUwsgi(newCmdline.Parts)
+		p.Friendly = resolveUwsgi(p.Cmdline)
 	default:
-		newCmdline.Friendly = resolveDefault(newCmdline.Parts, comm)
+		p.Friendly = resolveDefault(p.Cmdline, p.Comm)
 	}
 
-	newCmdline.Friendly = strings.Map(StripSpecial, newCmdline.Friendly)
+	p.Friendly = strings.Map(StripSpecial, p.Friendly)
 }
 
 func resolveUwsgi(parts []string) string {

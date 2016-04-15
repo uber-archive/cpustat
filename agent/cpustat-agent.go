@@ -30,11 +30,16 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"runtime/pprof"
 	"sync"
+	"syscall"
 	"time"
+
+	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/uber/tchannel-go"
 	"github.com/uber/tchannel-go/raw"
@@ -43,16 +48,18 @@ import (
 	"github.com/uber-common/cpustat/lib"
 )
 
-const maxProcsToScan = 2048 // upper bound on proc table size
-var cmdNames cpustat.CmdlineMap
-var cmdLock sync.Mutex
+var infoMap cpustat.ProcInfoMap
+var infolock sync.Mutex
+var intervalms uint32
 
 func main() {
 	var interval = flag.Int("i", 200, "interval (ms) between measurements")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 	var dbSize = flag.Int("dbsize", 3000, "samples to keep in memory")
-	var maxProcsToScan = flag.Int("maxprocs", 2000, "max size of process table")
+	var maxProcsToScan = flag.Int("maxprocs", 3000, "max size of process table")
+	var statsInterval = flag.String("statsinterval", "1s", "print usage statistics to stdout, 0s to disable")
+	var pruneChance = flag.Float64("prunechance", 0.01, "percentage of intervals to also prune old cmdline data")
 
 	if os.Geteuid() != 0 {
 		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
@@ -65,6 +72,7 @@ func main() {
 		fmt.Println("The minimum sampling interval is 10ms")
 		os.Exit(1)
 	}
+	intervalms = uint32(*interval)
 
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -99,15 +107,18 @@ func main() {
 	}()
 
 	dbInit(uint32(*dbSize))
+	expiry := time.Duration(*dbSize**interval) * time.Millisecond
 
 	nlConn := cpustat.NLInit()
 
-	cmdLock.Lock()
-	cmdNames = make(cpustat.CmdlineMap)
-	cmdLock.Unlock()
-	proc := make(cpustat.ProcStatsMap)
-	task := make(cpustat.TaskStatsMap)
+	infolock.Lock()
+	infoMap = make(cpustat.ProcInfoMap)
+	infolock.Unlock()
+	proc := make(cpustat.ProcStatsMap, *maxProcsToScan)
+	task := make(cpustat.TaskStatsMap, *maxProcsToScan)
 	sys := &cpustat.SystemStats{}
+
+	rand.Seed(time.Now().UnixNano())
 
 	var t1, t2 time.Time
 
@@ -115,16 +126,20 @@ func main() {
 
 	t1 = time.Now()
 	cpustat.GetPidList(&pids, *maxProcsToScan)
-	cmdLock.Lock()
-	proc = cpustat.ProcStatsReader(pids, cmdNames)
-	task = cpustat.TaskStatsReader(nlConn, pids, cmdNames)
-	cmdLock.Unlock()
+	infolock.Lock()
+	proc = cpustat.ProcStatsReader(pids, infoMap, *maxProcsToScan)
+	task = cpustat.TaskStatsReader(nlConn, pids, *maxProcsToScan)
+	infolock.Unlock()
 	sys, _ = cpustat.SystemStatsReader()
-	writeSample(sampleBatch{proc, task, sys})
+	writeSample(proc, task, sys)
 
 	go runServer()
 
-	go printStats()
+	go printStats(*statsInterval)
+
+	go func() {
+		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
+	}()
 
 	t2 = time.Now()
 
@@ -134,19 +149,22 @@ func main() {
 	for {
 		time.Sleep(adjustedSleep)
 
+		// the time it takes to do all of the work will vary, so measure it each time and sleep for remainder
 		t1 = time.Now()
-		cpustat.GetPidList(&pids, *maxProcsToScan)
-		cmdLock.Lock()
-		proc = cpustat.ProcStatsReader(pids, cmdNames)
-		task = cpustat.TaskStatsReader(nlConn, pids, cmdNames)
-		cmdLock.Unlock()
-		sys, _ = cpustat.SystemStatsReader()
-		writeSample(sampleBatch{proc, task, sys})
-		t2 = time.Now()
 
+		cpustat.GetPidList(&pids, *maxProcsToScan)
+		infolock.Lock()
+		proc = cpustat.ProcStatsReader(pids, infoMap, *maxProcsToScan)
+		task = cpustat.TaskStatsReader(nlConn, pids, *maxProcsToScan)
+		infoMap.MaybePrune(*pruneChance, pids, expiry)
+		infolock.Unlock()
+		sys, _ = cpustat.SystemStatsReader()
+		writeSample(proc, task, sys)
+
+		t2 = time.Now()
 		adjustedSleep = targetSleep - t2.Sub(t1)
 
-		// If we can't keep up, try to buy ourselves a little headroom by sleeping for a extra magic number of ms
+		// If we can't keep up, try to buy ourselves a little headroom by sleeping for a magic number of extra ms
 		if adjustedSleep <= 0 {
 			adjustedSleep = time.Duration(*interval)*time.Millisecond + (time.Duration(100) * time.Millisecond)
 		}
@@ -174,8 +192,6 @@ func (rawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) 
 func gobEncodeSys(countBytes []byte) []byte {
 	count := binary.LittleEndian.Uint32(countBytes)
 
-	fmt.Printf("About to encode %d sys samples\n", count)
-
 	samples := readSamples(count)
 	var valBuf bytes.Buffer
 	enc := gob.NewEncoder(&valBuf)
@@ -185,7 +201,6 @@ func gobEncodeSys(countBytes []byte) []byte {
 	}
 
 	sendCount := uint32(len(samples))
-	fmt.Printf("Sending response with %d sys samples\n", sendCount)
 
 	if err := enc.Encode(sendCount); err != nil {
 		panic(err)
@@ -210,14 +225,17 @@ func gobEncodeSamples(countBytes []byte) []byte {
 		panic(err)
 	}
 
-	cmdLock.Lock()
-	if err := enc.Encode(cmdNames); err != nil {
+	infolock.Lock()
+	if err := enc.Encode(infoMap); err != nil {
 		panic(err)
 	}
-	cmdLock.Unlock()
+	infolock.Unlock()
+
+	if err := enc.Encode(intervalms); err != nil {
+		panic(err)
+	}
 
 	sendCount := uint32(len(samples))
-	fmt.Printf("Sending response with %d samples\n", sendCount)
 
 	if err := enc.Encode(sendCount); err != nil {
 		panic(err)
@@ -261,9 +279,21 @@ func runServer() {
 	select {}
 }
 
-func printStats() {
+func printStats(s string) {
+	dur, err := time.ParseDuration(s)
+	if err != nil {
+		panic(err)
+	}
+
 	for {
-		fmt.Printf("db entries: %d\n", dbCount())
-		time.Sleep(time.Second)
+		var curUsage syscall.Rusage
+		err = syscall.Getrusage(syscall.RUSAGE_SELF, &curUsage)
+		if err != nil {
+			panic(err)
+		}
+		pcount, tcount, scount := dbStats()
+		fmt.Printf("rss: %.2fMB db entries: %d procs: %d tasks:%d sys: %d\n",
+			float64(curUsage.Maxrss)/1024, dbCount(), pcount, tcount, scount)
+		time.Sleep(dur)
 	}
 }

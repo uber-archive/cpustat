@@ -22,6 +22,8 @@ package cpustat
 
 import "time"
 
+// TaskStats is the set of data from linux/taskstats.h that seemed relevant and accurate.
+// There are other things in the kernel struct that are not tracked here, but perhaps should be.
 type TaskStats struct {
 	Capturetime         time.Time
 	Cpudelaycount       uint64 // delay count waiting for CPU, while runnable
@@ -30,39 +32,32 @@ type TaskStats struct {
 	Blkiodelaytotal     uint64 // delay time waiting for disk
 	Swapindelaycount    uint64 // delay count waiting for swap
 	Swapindelaytotal    uint64 // delay time waiting for swap
-	Minflt              uint64 // major page fault count
-	Majflt              uint64 // minor page fault count
-	Readchar            uint64 // total bytes read
-	Writechar           uint64 // total bytes written
-	Readsyscalls        uint64 // read system calls
-	Writesyscalls       uint64 // write system calls
-	Readbytes           uint64 // bytes read total
-	Writebytes          uint64 // bytes written total
-	Cancelledwritebytes uint64 // bytes of cancelled write IO, whatever that is
 	Nvcsw               uint64 // voluntary context switches
 	Nivcsw              uint64 // involuntary context switches
 	Freepagesdelaycount uint64 // delay count waiting for memory reclaim
 	Freepagesdelaytotal uint64 // delay time waiting for memory reclaim in unknown units
 }
 
+// TaskStatsMap maps pid to TaskStats, suually representing a sample of all pids
 type TaskStatsMap map[int]*TaskStats
 
-func TaskStatsReader(conn *NLConn, pids Pidlist, cmdNames CmdlineMap) TaskStatsMap {
-	cur := make(TaskStatsMap)
+// TaskStatsReader uses conn to build a TaskStatsMap for all pids.
+func TaskStatsReader(conn *NLConn, pids Pidlist, maxProcsToScan int) TaskStatsMap {
+	cur := make(TaskStatsMap, maxProcsToScan)
 
 	for _, pid := range pids {
-		stat, comm, err := TaskStatsLookupPid(conn, pid)
+		stat, err := TaskStatsLookupPid(conn, pid)
 		// it would be better to check for other errors here
 		if err != nil {
 			continue
 		}
 		cur[pid] = stat
-		updateCmdline(cmdNames, pid, comm)
 	}
 	return cur
 }
 
-func TaskStatsRecord(interval int, curMap, prevMap, sumMap TaskStatsMap) TaskStatsMap {
+// TaskStatsRecord uses two samples of the system state to update the sum and returns the difference
+func TaskStatsRecord(interval uint32, curMap, prevMap, sumMap TaskStatsMap) TaskStatsMap {
 	deltaMap := make(TaskStatsMap)
 
 	for pid, cur := range curMap {
@@ -92,24 +87,6 @@ func TaskStatsRecord(interval int, curMap, prevMap, sumMap TaskStatsMap) TaskSta
 			sum.Swapindelaycount += SafeSub(cur.Swapindelaycount, prev.Swapindelaycount)
 			delta.Swapindelaytotal = ScaledSub(cur.Swapindelaytotal, prev.Swapindelaytotal, scale)
 			sum.Swapindelaytotal += SafeSub(cur.Swapindelaytotal, prev.Swapindelaytotal)
-			delta.Minflt = ScaledSub(cur.Minflt, prev.Minflt, scale)
-			sum.Minflt += SafeSub(cur.Minflt, prev.Minflt)
-			delta.Majflt = ScaledSub(cur.Majflt, prev.Majflt, scale)
-			sum.Majflt += SafeSub(cur.Majflt, prev.Majflt)
-			delta.Readchar = ScaledSub(cur.Readchar, prev.Readchar, scale)
-			sum.Readchar += SafeSub(cur.Readchar, prev.Readchar)
-			delta.Writechar = ScaledSub(cur.Writechar, prev.Writechar, scale)
-			sum.Writechar += SafeSub(cur.Writechar, prev.Writechar)
-			delta.Readsyscalls = ScaledSub(cur.Readsyscalls, prev.Readsyscalls, scale)
-			sum.Readsyscalls += SafeSub(cur.Readsyscalls, prev.Readsyscalls)
-			delta.Writesyscalls = ScaledSub(cur.Writesyscalls, prev.Writesyscalls, scale)
-			sum.Writesyscalls += SafeSub(cur.Writesyscalls, prev.Writesyscalls)
-			delta.Readbytes = ScaledSub(cur.Readbytes, prev.Readbytes, scale)
-			sum.Readbytes += SafeSub(cur.Readbytes, prev.Readbytes)
-			delta.Writebytes = ScaledSub(cur.Writebytes, prev.Writebytes, scale)
-			sum.Writebytes += SafeSub(cur.Writebytes, prev.Writebytes)
-			delta.Cancelledwritebytes = ScaledSub(cur.Cancelledwritebytes, prev.Cancelledwritebytes, scale)
-			sum.Cancelledwritebytes += SafeSub(cur.Cancelledwritebytes, prev.Cancelledwritebytes)
 			delta.Nvcsw = ScaledSub(cur.Nvcsw, prev.Nvcsw, scale)
 			sum.Nvcsw += SafeSub(cur.Nvcsw, prev.Nvcsw)
 			delta.Nivcsw = ScaledSub(cur.Nivcsw, prev.Nivcsw, scale)
