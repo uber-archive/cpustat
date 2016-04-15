@@ -163,7 +163,7 @@ func tuiInit(ch chan string, interval int) {
 }
 
 // this is a lot of copy/paste from dumpStats. Would be good to refactor this to share.
-func tuiListUpdate(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcStatsMap,
+func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsMap,
 	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
 	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
@@ -213,14 +213,14 @@ func tuiListUpdate(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcSt
 		graphColors[strPid] = colorList[colorPos]
 
 		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d",
-			trunc(cmdNames[pid].Friendly, 28),
+			trunc(infoMap[pid].Friendly, 28),
 			pid,
 			colorPos,
 			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
 			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
 			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
 			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
-			procSum[pid].Nice,
+			infoMap[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,
@@ -238,7 +238,7 @@ func tuiListUpdate(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcSt
 }
 
 func tuiGraphUpdate(procDelta lib.ProcStatsMap, sysDelta *lib.SystemStats, taskDelta lib.TaskStatsMap,
-	topPids lib.Pidlist, jiffy, interval int) {
+	topPids lib.Pidlist, jiffy, interval uint32) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)

@@ -62,13 +62,13 @@ func main() {
 		log.Fatalf("NewChannel failed: %v", err)
 	}
 
-	ctx, cancel := tchannel.NewContext(100 * time.Millisecond)
+	ctx, cancel := tchannel.NewContext(5 * time.Second)
 	defer cancel()
 
 	sendCount := make([]byte, 4)
 	binary.LittleEndian.PutUint32(sendCount, uint32(*fetchCount))
 
-	_, arg3, _, err := raw.Call(ctx, ch, *hostPort, "cpustat", "readSys", nil, sendCount)
+	_, arg3, _, err := raw.Call(ctx, ch, *hostPort, "cpustat", "readSamples", nil, sendCount)
 	if err != nil {
 		panic(err)
 	}
@@ -77,20 +77,199 @@ func main() {
 	dec := gob.NewDecoder(buf)
 	var when time.Time
 	err = dec.Decode(&when)
+	var infoMap cpustat.ProcInfoMap
+	err = dec.Decode(&infoMap)
+	var interval uint32
+	err = dec.Decode(&interval)
 	var recvCount uint32
 	err = dec.Decode(&recvCount)
-	fmt.Printf("Recv time: %v\n", when)
-	fmt.Println("need to decode", recvCount, "samples", err)
-	list := make([]cpustat.SystemStats, recvCount)
+	procSum := newProcSum(interval, infoMap)
 	for i := uint32(0); i < recvCount; i++ {
+		var procMap cpustat.ProcStatsMap
+		var taskMap cpustat.TaskStatsMap
 		var sys cpustat.SystemStats
+
+		err = dec.Decode(&procMap)
+		err = dec.Decode(&taskMap)
 		err = dec.Decode(&sys)
-		list[i] = sys
+
+		procSum.update(procMap, taskMap, &sys)
 	}
-	summarize(list)
+
+	procSum.summarize()
 }
 
-func summarize(allSamples []cpustat.SystemStats) {
+type procSummary struct {
+	infoMap   cpustat.ProcInfoMap
+	procCur   cpustat.ProcStatsMap
+	procPrev  cpustat.ProcStatsMap
+	procSum   cpustat.ProcStatsMap
+	procDelta cpustat.ProcStatsMap
+	procHist  cpustat.ProcStatsHistMap
+	taskCur   cpustat.TaskStatsMap
+	taskPrev  cpustat.TaskStatsMap
+	taskSum   cpustat.TaskStatsMap
+	taskDelta cpustat.TaskStatsMap
+	taskHist  cpustat.TaskStatsHistMap
+	sysCur    *cpustat.SystemStats
+	sysPrev   *cpustat.SystemStats
+	sysSum    *cpustat.SystemStats
+	sysDelta  *cpustat.SystemStats
+	sysHist   *cpustat.SystemStatsHist
+	Interval  uint32
+	Samples   uint32
+}
+
+func newProcSum(interval uint32, infoMap cpustat.ProcInfoMap) *procSummary {
+	ret := procSummary{}
+
+	ret.infoMap = infoMap
+
+	ret.procCur = make(cpustat.ProcStatsMap)
+	ret.procPrev = make(cpustat.ProcStatsMap)
+	ret.procSum = make(cpustat.ProcStatsMap)
+	ret.procDelta = make(cpustat.ProcStatsMap)
+	ret.procHist = make(cpustat.ProcStatsHistMap)
+
+	ret.taskCur = make(cpustat.TaskStatsMap)
+	ret.taskPrev = make(cpustat.TaskStatsMap)
+	ret.taskSum = make(cpustat.TaskStatsMap)
+	ret.taskDelta = make(cpustat.TaskStatsMap)
+	ret.taskHist = make(cpustat.TaskStatsHistMap)
+
+	ret.sysCur = &cpustat.SystemStats{}
+	ret.sysPrev = &cpustat.SystemStats{}
+	ret.sysSum = &cpustat.SystemStats{}
+	ret.sysDelta = &cpustat.SystemStats{}
+	ret.sysHist = cpustat.NewSysStatsHist()
+
+	ret.Interval = interval
+
+	return &ret
+}
+
+func (p *procSummary) update(procMap cpustat.ProcStatsMap, taskMap cpustat.TaskStatsMap, sys *cpustat.SystemStats) {
+	if p.Samples == 0 {
+		p.procPrev = procMap
+		p.taskPrev = taskMap
+		p.sysPrev = sys
+	} else {
+		p.procCur = procMap
+		p.procDelta = cpustat.ProcStatsRecord(p.Interval, p.procCur, p.procPrev, p.procSum)
+		for pid, delta := range p.procDelta {
+			fmt.Printf("%d: %+v\n", pid, delta)
+		}
+
+		cpustat.UpdateProcStatsHist(p.procHist, p.procDelta)
+		p.procPrev = p.procCur
+
+		p.taskCur = taskMap
+		p.taskDelta = cpustat.TaskStatsRecord(p.Interval, p.taskCur, p.taskPrev, p.taskSum)
+		cpustat.UpdateTaskStatsHist(p.taskHist, p.taskDelta)
+		p.taskPrev = p.taskCur
+
+		p.sysCur = sys
+		p.sysDelta = cpustat.SystemStatsRecord(p.Interval, p.sysCur, p.sysPrev, p.sysSum)
+		cpustat.UpdateSysStatsHist(p.sysHist, p.sysDelta)
+		p.sysPrev = p.sysCur
+	}
+
+	p.Samples++
+}
+
+type procJSON struct {
+	Samples    uint64
+	Pid        uint64
+	Ppid       uint64
+	Nice       int64
+	Comm       string
+	Cmdline    []string
+	Numthreads uint64
+
+	RSS uint64
+
+	UsrMin float64
+	UsrMax float64
+	UsrAvg float64
+	UsrP95 float64
+
+	SysMin float64
+	SysMax float64
+	SysAvg float64
+	SysP95 float64
+
+	CUSMin float64
+	CUSMax float64
+	CUSAvg float64
+	CUSP95 float64
+
+	RunQAvg   float64
+	RunQCount uint64
+	IOWAvg    float64
+	IOWCount  uint64
+	SwapAvg   float64
+	SwapCount uint64
+	Vcsw      uint64
+	Ivcsw     uint64
+}
+
+func (p *procSummary) summarize() {
+	for pid, sum := range p.procSum {
+		info, ok := p.infoMap[pid]
+		if ok == false {
+			panic(fmt.Sprint("missing procInfo for", pid))
+		}
+		hist, ok := p.procHist[pid]
+		if ok == false {
+			panic(fmt.Sprint("missing procHist for", pid))
+		}
+
+		out := procJSON{}
+		out.Pid = info.Pid
+		out.Comm = info.Comm
+		out.Ppid = info.Ppid
+		out.Nice = info.Nice
+		out.Cmdline = info.Cmdline
+
+		out.RSS = sum.Rss
+		out.Numthreads = sum.Numthreads
+
+		out.Samples = uint64(hist.Ustime.TotalCount())
+
+		out.UsrMin = float64(hist.Utime.Min())
+		out.UsrMax = float64(hist.Utime.Max())
+		out.UsrAvg = hist.Utime.Mean()
+		out.UsrP95 = float64(hist.Utime.ValueAtQuantile(95))
+
+		out.SysMin = float64(hist.Stime.Min())
+		out.SysMax = float64(hist.Stime.Max())
+		out.SysAvg = hist.Stime.Mean()
+		out.SysP95 = float64(hist.Stime.ValueAtQuantile(95))
+
+		out.CUSMin = float64(hist.Ustime.Min())
+		out.CUSMax = float64(hist.Ustime.Max())
+		out.CUSAvg = hist.Ustime.Mean()
+		out.CUSP95 = float64(hist.Ustime.ValueAtQuantile(95))
+
+		if task, ok := p.taskSum[pid]; ok == true {
+			out.RunQAvg = float64(task.Cpudelaytotal)
+			out.RunQCount = task.Cpudelaycount
+			out.IOWAvg = float64(task.Blkiodelaytotal)
+			out.IOWCount = task.Blkiodelaycount
+			out.SwapAvg = float64(task.Swapindelaytotal)
+			out.SwapCount = task.Swapindelaycount
+		} else {
+			fmt.Println("no taskSum for", pid)
+		}
+		//		b, err := json.Marshal(out)
+		//		if err != nil {
+		//			panic(err)
+		//		}
+		//		fmt.Println(string(b))
+	}
+}
+
+func summarizeSys(allSamples []cpustat.SystemStats) {
 	sum := cpustat.SystemStats{}
 	hist := cpustat.NewSysStatsHist()
 	for pos := len(allSamples) - 1; pos >= 1; pos-- {
@@ -129,13 +308,11 @@ func fetchSamples(hostPort string, count int) {
 	dec := gob.NewDecoder(buf)
 	var when time.Time
 	err = dec.Decode(&when)
-	var cmdNames cpustat.CmdlineMap
-	err = dec.Decode(&cmdNames)
-	fmt.Println("pidlist", cmdNames, err)
+	var infoMap cpustat.ProcInfoMap
+	err = dec.Decode(&infoMap)
+	fmt.Println("pidlist", infoMap, err)
 	var recvCount uint32
 	err = dec.Decode(&recvCount)
-	fmt.Printf("Recv time: %v\n", when)
-	fmt.Println("need to decode", recvCount, "samples", err)
 	for i := uint32(0); i < recvCount; i++ {
 		var procs cpustat.ProcStatsMap
 		var tasks cpustat.TaskStatsMap

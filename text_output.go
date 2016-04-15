@@ -77,7 +77,7 @@ func trunc(str string, length int) string {
 	return str[:length]
 }
 
-func dumpStats(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcStatsMap,
+func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsMap,
 	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
 	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
@@ -144,13 +144,13 @@ func dumpStats(cmdNames lib.CmdlineMap, list lib.Pidlist, procSum lib.ProcStatsM
 		}
 
 		fmt.Printf("%23s %7d %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d\n",
-			trunc(cmdNames[pid].Friendly, 23),
+			trunc(infoMap[pid].Friendly, 23),
 			pid,
 			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
 			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
 			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
 			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
-			procSum[pid].Nice,
+			infoMap[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,

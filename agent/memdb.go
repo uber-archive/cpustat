@@ -33,7 +33,27 @@ func dbCount() uint32 {
 	return ret
 }
 
-func writeSample(sample sampleBatch) {
+func dbStats() (int, int, int) {
+	var pcount, tcount, scount int
+
+	readPos := int(writePos) - 1
+	dbLock.RLock()
+	for i := uint32(0); i < dbEntries; i++ {
+		if readPos < 0 {
+			readPos = int(dbSize) - 1
+		}
+		pcount += len(dbData[readPos].Proc)
+		tcount += len(dbData[readPos].Task)
+		scount++
+		readPos--
+	}
+	dbLock.RUnlock()
+	return pcount, tcount, scount
+}
+
+func writeSample(procMap cpustat.ProcStatsMap, taskMap cpustat.TaskStatsMap, sys *cpustat.SystemStats) {
+	sample := sampleBatch{procMap, taskMap, sys}
+
 	dbLock.Lock()
 	dbData[writePos] = sample
 	writePos++
@@ -56,7 +76,7 @@ func readSamples(n uint32) []sampleBatch {
 	ret := make([]sampleBatch, n)
 	readPos := int(writePos) - 1
 	dbLock.RLock()
-	for i := 0; i < int(n); i++ {
+	for i := n - 1; i >= 0; i-- {
 		if readPos < 0 {
 			readPos = int(dbSize) - 1
 		}
