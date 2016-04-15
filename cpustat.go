@@ -111,14 +111,10 @@ func main() {
 
 	infoMap := make(lib.ProcInfoMap)
 
-	procCur := make(lib.ProcStatsMap)
-	procPrev := make(lib.ProcStatsMap)
-	procSum := make(lib.ProcStatsMap)
+	procCur := make(lib.ProcSampleList, 0, *maxProcsToScan)
+	procPrev := make(lib.ProcSampleList, 0, *maxProcsToScan)
+	procSum := make(lib.ProcSampleMap)
 	procHist := make(lib.ProcStatsHistMap)
-
-	taskCur := make(lib.TaskStatsMap)
-	taskPrev := make(lib.TaskStatsMap)
-	taskSum := make(lib.TaskStatsMap)
 	taskHist := make(lib.TaskStatsHistMap)
 
 	var sysCur *lib.SystemStats
@@ -130,15 +126,17 @@ func main() {
 
 	// run all scans one time to establish a baseline
 	pids := make(lib.Pidlist, 0, *maxProcsToScan)
-	lib.GetPidList(&pids, *maxProcsToScan)
 
 	t1 = time.Now()
 	var err error
-	procPrev = lib.ProcStatsReader(pids, infoMap, *maxProcsToScan)
-	taskPrev = lib.TaskStatsReader(nlConn, pids, *maxProcsToScan)
-	if sysPrev, err = lib.SystemStatsReader(); err != nil {
-		log.Fatal(err)
+	lib.GetPidList(&pids, *maxProcsToScan)
+	lib.ProcStatsReader(pids, &procPrev, infoMap)
+	lib.TaskStatsReader(nlConn, pids, procPrev)
+	err = lib.SystemStatsReader(sysPrev)
+	if err != nil {
+		panic(err)
 	}
+
 	sysSum = &lib.SystemStats{}
 	sysHist = lib.NewSysStatsHist()
 	t2 = time.Now()
@@ -154,17 +152,18 @@ func main() {
 			t1 = time.Now()
 			lib.GetPidList(&pids, *maxProcsToScan)
 
-			procCur = lib.ProcStatsReader(pids, infoMap, *maxProcsToScan)
-			procDelta := lib.ProcStatsRecord(intervalms, procCur, procPrev, procSum)
+			lib.ProcStatsReader(pids, &procCur, infoMap)
+			lib.TaskStatsReader(nlConn, pids, procCur)
+
+			procDelta := make(lib.ProcSampleMap, len(pids))
+			lib.ProcStatsRecord(intervalms, procCur, procPrev, procSum, procDelta)
 			lib.UpdateProcStatsHist(procHist, procDelta)
+			lib.TaskStatsRecord(intervalms, procCur, procPrev, procSum, procDelta)
+			lib.UpdateTaskStatsHist(taskHist, procDelta)
+
 			procPrev = procCur
 
-			taskCur = lib.TaskStatsReader(nlConn, pids, *maxProcsToScan)
-			taskDelta := lib.TaskStatsRecord(intervalms, taskCur, taskPrev, taskSum)
-			lib.UpdateTaskStatsHist(taskHist, taskDelta)
-			taskPrev = taskCur
-
-			if sysCur, err = lib.SystemStatsReader(); err != nil {
+			if err = lib.SystemStatsReader(sysCur); err != nil {
 				log.Fatal(err)
 			}
 			sysDelta := lib.SystemStatsRecord(intervalms, sysCur, sysPrev, sysSum)
@@ -172,7 +171,7 @@ func main() {
 			sysPrev = sysCur
 
 			if *useTui {
-				tuiGraphUpdate(procDelta, sysDelta, taskDelta, topPids, uint32(*jiffy), intervalms)
+				tuiGraphUpdate(procDelta, sysDelta, topPids, uint32(*jiffy), intervalms)
 			}
 
 			t2 = time.Now()
@@ -185,9 +184,9 @@ func main() {
 		}
 
 		if *useTui {
-			tuiListUpdate(infoMap, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
+			tuiListUpdate(infoMap, topPids, procSum, procHist, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		} else {
-			dumpStats(infoMap, topPids, procSum, procHist, taskSum, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
+			dumpStats(infoMap, topPids, procSum, procHist, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		}
 		procHist = make(lib.ProcStatsHistMap)
 		procSum = make(lib.ProcStatsMap)

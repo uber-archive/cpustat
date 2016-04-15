@@ -24,15 +24,13 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
-	"encoding/gob"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"os/signal"
+	"runtime"
 	"runtime/pprof"
 	"sync"
 	"syscall"
@@ -40,10 +38,6 @@ import (
 
 	"net/http"
 	_ "net/http/pprof"
-
-	"github.com/uber/tchannel-go"
-	"github.com/uber/tchannel-go/raw"
-	"golang.org/x/net/context"
 
 	"github.com/uber-common/cpustat/lib"
 )
@@ -53,13 +47,14 @@ var infolock sync.Mutex
 var intervalms uint32
 
 func main() {
+	runtime.MemProfileRate = 1
 	var interval = flag.Int("i", 200, "interval (ms) between measurements")
 	var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to file")
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 	var dbSize = flag.Int("dbsize", 3000, "samples to keep in memory")
 	var maxProcsToScan = flag.Int("maxprocs", 3000, "max size of process table")
 	var statsInterval = flag.String("statsinterval", "1s", "print usage statistics to stdout, 0s to disable")
-	var pruneChance = flag.Float64("prunechance", 0.01, "percentage of intervals to also prune old cmdline data")
+	//	var pruneChance = flag.Float64("prunechance", 0.01, "percentage of intervals to also prune old cmdline data")
 
 	if os.Geteuid() != 0 {
 		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
@@ -107,15 +102,10 @@ func main() {
 	}()
 
 	dbInit(uint32(*dbSize))
-	expiry := time.Duration(*dbSize**interval) * time.Millisecond
+	//	expiry := time.Duration(*dbSize**interval) * time.Millisecond
 
-	nlConn := cpustat.NLInit()
+	//	nlConn := cpustat.NLInit()
 
-	infolock.Lock()
-	infoMap = make(cpustat.ProcInfoMap)
-	infolock.Unlock()
-	proc := make(cpustat.ProcStatsMap, *maxProcsToScan)
-	task := make(cpustat.TaskStatsMap, *maxProcsToScan)
 	sys := &cpustat.SystemStats{}
 
 	rand.Seed(time.Now().UnixNano())
@@ -123,15 +113,15 @@ func main() {
 	var t1, t2 time.Time
 
 	pids := make(cpustat.Pidlist, 0, *maxProcsToScan)
+	infoMap := make(cpustat.ProcInfoMap, *maxProcsToScan)
+	cur := make(cpustat.ProcSampleList, 0, *maxProcsToScan)
 
 	t1 = time.Now()
 	cpustat.GetPidList(&pids, *maxProcsToScan)
-	infolock.Lock()
-	proc = cpustat.ProcStatsReader(pids, infoMap, *maxProcsToScan)
-	task = cpustat.TaskStatsReader(nlConn, pids, *maxProcsToScan)
-	infolock.Unlock()
-	sys, _ = cpustat.SystemStatsReader()
-	writeSample(proc, task, sys)
+	cpustat.ProcStatsReader(pids, &cur, infoMap)
+	//	cpustat.TaskStatsReader(nlConn, pids, cur)
+	cpustat.SystemStatsReader(sys)
+	writeSample(cur, sys)
 
 	go runServer()
 
@@ -144,7 +134,7 @@ func main() {
 	t2 = time.Now()
 
 	targetSleep := time.Duration(*interval) * time.Millisecond
-	adjustedSleep := targetSleep - t2.Sub(t1)
+	adjustedSleep := adjustSleep(targetSleep, t1, t2)
 
 	for {
 		time.Sleep(adjustedSleep)
@@ -152,131 +142,31 @@ func main() {
 		// the time it takes to do all of the work will vary, so measure it each time and sleep for remainder
 		t1 = time.Now()
 
-		cpustat.GetPidList(&pids, *maxProcsToScan)
-		infolock.Lock()
-		proc = cpustat.ProcStatsReader(pids, infoMap, *maxProcsToScan)
-		task = cpustat.TaskStatsReader(nlConn, pids, *maxProcsToScan)
-		infoMap.MaybePrune(*pruneChance, pids, expiry)
-		infolock.Unlock()
-		sys, _ = cpustat.SystemStatsReader()
-		writeSample(proc, task, sys)
+		cur = make(cpustat.ProcSampleList, 0, *maxProcsToScan)
 
+		//cpustat.GetPidList(&pids, *maxProcsToScan)
+		//		infolock.Lock()
+		// cpustat.ProcStatsReader(pids, &cur, infoMap)
+		//		cpustat.TaskStatsReader(nlConn, pids, cur)
+		//		infoMap.MaybePrune(*pruneChance, pids, expiry)
+		//		infolock.Unlock()
+		// _ = cpustat.SystemStatsReader(sys)
+		writeSample(cur, sys)
+		runtime.GC()
 		t2 = time.Now()
-		adjustedSleep = targetSleep - t2.Sub(t1)
-
-		// If we can't keep up, try to buy ourselves a little headroom by sleeping for a magic number of extra ms
-		if adjustedSleep <= 0 {
-			adjustedSleep = time.Duration(*interval)*time.Millisecond + (time.Duration(100) * time.Millisecond)
-		}
+		adjustedSleep = adjustSleep(targetSleep, t1, t2)
 	}
 }
 
-type rawHandler struct{}
+func adjustSleep(target time.Duration, t1, t2 time.Time) time.Duration {
+	adjustedSleep := target - t2.Sub(t1)
 
-func (rawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) {
-	switch args.Method {
-	case "readSamples":
-		return &raw.Res{
-			Arg2: []byte{},
-			Arg3: gobEncodeSamples(args.Arg3),
-		}, nil
-	case "readSys":
-		return &raw.Res{
-			Arg2: []byte{},
-			Arg3: gobEncodeSys(args.Arg3),
-		}, nil
+	// If we can't keep up, try to buy ourselves a little headroom by sleeping for a magic number of extra ms
+	if adjustedSleep <= 0 {
+		fmt.Fprintf(os.Stderr, "warning: work cycle took longer than sampling interval by %dms\n", adjustedSleep)
+		adjustedSleep = target + (time.Duration(100) * time.Millisecond)
 	}
-	return nil, fmt.Errorf("unhandled: (%s)", args.Method)
-}
-
-func gobEncodeSys(countBytes []byte) []byte {
-	count := binary.LittleEndian.Uint32(countBytes)
-
-	samples := readSamples(count)
-	var valBuf bytes.Buffer
-	enc := gob.NewEncoder(&valBuf)
-
-	if err := enc.Encode(time.Now()); err != nil {
-		panic(err)
-	}
-
-	sendCount := uint32(len(samples))
-
-	if err := enc.Encode(sendCount); err != nil {
-		panic(err)
-	}
-
-	for _, sample := range samples {
-		if err := enc.Encode(sample.Sys); err != nil {
-			panic(err)
-		}
-	}
-	return valBuf.Bytes()
-}
-
-func gobEncodeSamples(countBytes []byte) []byte {
-	count := binary.LittleEndian.Uint32(countBytes)
-
-	samples := readSamples(count)
-	var valBuf bytes.Buffer
-	enc := gob.NewEncoder(&valBuf)
-
-	if err := enc.Encode(time.Now()); err != nil {
-		panic(err)
-	}
-
-	infolock.Lock()
-	if err := enc.Encode(infoMap); err != nil {
-		panic(err)
-	}
-	infolock.Unlock()
-
-	if err := enc.Encode(intervalms); err != nil {
-		panic(err)
-	}
-
-	sendCount := uint32(len(samples))
-
-	if err := enc.Encode(sendCount); err != nil {
-		panic(err)
-	}
-
-	for _, sample := range samples {
-		if err := enc.Encode(sample.Proc); err != nil {
-			panic(err)
-		}
-		if err := enc.Encode(sample.Task); err != nil {
-			panic(err)
-		}
-		if err := enc.Encode(sample.Sys); err != nil {
-			panic(err)
-		}
-	}
-	return valBuf.Bytes()
-}
-
-func (rawHandler) OnError(ctx context.Context, err error) {
-	log.Fatalf("OnError: %v", err)
-}
-
-func runServer() {
-	ch, err := tchannel.NewChannel("cpustat", nil)
-	if err != nil {
-		log.Fatalf("NewChannel failed: %v", err)
-	}
-
-	handler := raw.Wrap(rawHandler{})
-	ch.Register(handler, "readSamples")
-	ch.Register(handler, "readSys")
-	ch.Register(handler, "status")
-
-	hostPort := fmt.Sprintf("%s:%v", "127.0.0.1", 1971)
-	if err := ch.ListenAndServe(hostPort); err != nil {
-		log.Fatalf("ListenAndServe failed: %v", err)
-	}
-
-	fmt.Println("listening on", ch.PeerInfo().HostPort)
-	select {}
+	return adjustedSleep
 }
 
 func printStats(s string) {
@@ -291,9 +181,9 @@ func printStats(s string) {
 		if err != nil {
 			panic(err)
 		}
-		pcount, tcount, scount := dbStats()
-		fmt.Printf("rss: %.2fMB db entries: %d procs: %d tasks:%d sys: %d\n",
-			float64(curUsage.Maxrss)/1024, dbCount(), pcount, tcount, scount)
+		pcount, scount := dbStats()
+		fmt.Printf("rss: %.2fMB db entries: %d procs: %d sys: %d\n",
+			float64(curUsage.Maxrss)/1024, dbCount(), pcount, scount)
 		time.Sleep(dur)
 	}
 }
