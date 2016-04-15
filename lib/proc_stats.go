@@ -105,9 +105,7 @@ func procPidStatSplit(line string) []string {
 }
 
 // ProcStatsReader reads and parses /proc/[pid]/stat for all of pids
-func ProcStatsReader(pids Pidlist, infoMap ProcInfoMap, maxProcsToScan int) ProcStatsMap {
-	cur := make(ProcStatsMap, maxProcsToScan)
-
+func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 	for _, pid := range pids {
 		lines, err := ReadFileLines(fmt.Sprintf("/proc/%d/stat", pid))
 		// pid could have exited between when we scanned the dir and now
@@ -118,7 +116,9 @@ func ProcStatsReader(pids Pidlist, infoMap ProcInfoMap, maxProcsToScan int) Proc
 		// this format of this file is insane because comm can have split chars in it
 		parts := procPidStatSplit(lines[0])
 
-		stat := ProcStats{
+		sample := ProcSample{}
+		sample.Pid = pid
+		sample.Proc = ProcStats{
 			time.Now(),
 			ReadUInt(parts[13]), // utime
 			ReadUInt(parts[14]), // stime
@@ -129,7 +129,7 @@ func ProcStatsReader(pids Pidlist, infoMap ProcInfoMap, maxProcsToScan int) Proc
 			ReadUInt(parts[42]), // guest_time
 			ReadUInt(parts[43]), // cguest_time
 		}
-		cur[pid] = &stat
+		*cur = append(*cur, sample)
 
 		if info, ok := infoMap[pid]; ok == true {
 			info.touch()
@@ -152,26 +152,31 @@ func ProcStatsReader(pids Pidlist, infoMap ProcInfoMap, maxProcsToScan int) Proc
 			infoMap[pid] = &info
 		}
 	}
-	return cur
 }
 
 // compute the delta between this sample and the previous one.
-func ProcStatsRecord(interval uint32, curMap, prevMap, sumMap ProcStatsMap) ProcStatsMap {
-	deltaMap := make(ProcStatsMap)
+func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
 
-	for pid, cur := range curMap {
-		if prev, ok := prevMap[pid]; ok == true {
+	curPos := 0
+	prevPos := 0
+
+	for curPos < len(curList) && prevPos < len(prevList) {
+		if curList[curPos].Pid == prevList[prevPos].Pid {
+			cur := &(curList[curPos].Proc)
+			prev := &(prevList[prevPos].Proc)
+			pid := curList[curPos].Pid
+
 			if _, ok := sumMap[pid]; ok == false {
-				sumMap[pid] = &ProcStats{}
+				sumMap[pid] = &ProcSample{}
 			}
-			deltaMap[pid] = &ProcStats{}
-			delta := deltaMap[pid]
+			deltaMap[pid] = &ProcSample{}
+			delta := &(deltaMap[pid].Proc)
 
 			delta.CaptureTime = cur.CaptureTime
 			duration := float64(delta.CaptureTime.Sub(prev.CaptureTime) / time.Millisecond)
 			scale := float64(interval) / duration
 
-			sum := sumMap[pid]
+			sum := &(sumMap[pid].Proc)
 			sum.CaptureTime = cur.CaptureTime
 			delta.Utime = ScaledSub(cur.Utime, prev.Utime, scale)
 			sum.Utime += SafeSub(cur.Utime, prev.Utime)
@@ -185,8 +190,17 @@ func ProcStatsRecord(interval uint32, curMap, prevMap, sumMap ProcStatsMap) Proc
 			sum.Rss = cur.Rss
 			delta.Guesttime = ScaledSub(cur.Guesttime, prev.Guesttime, scale)
 			sum.Guesttime += SafeSub(cur.Guesttime, prev.Guesttime)
+			curPos++
+			prevPos++
+		} else {
+			if curList[curPos].Pid < prevList[prevPos].Pid {
+				curPos++
+			} else {
+				prevPos++
+			}
 		}
 	}
-
-	return deltaMap
 }
+
+// 1 2 3 4   6 7
+//     3 4 5   7 8 9

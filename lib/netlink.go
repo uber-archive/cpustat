@@ -54,17 +54,17 @@ func stringFromBytes(c []byte) string {
 	return string(c[:nullPos])
 }
 
-func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, error) {
+func readGetTaskstatsMessage(conn *NLConn, task *TaskStats) error {
 	inBytes, err := conn.Read()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if len(inBytes) <= 0 {
-		return nil, fmt.Errorf("short read requesting taskstats info: %d bytes", len(inBytes))
+		return fmt.Errorf("short read requesting taskstats info: %d bytes", len(inBytes))
 	}
 	nlmsgs, err := syscall.ParseNetlinkMessage(inBytes)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if len(nlmsgs) != 1 {
@@ -78,15 +78,13 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, error) {
 		if errno == -1 {
 			panic("no permission")
 		}
-		return nil, fmt.Errorf("Netlink error code %d getting taskstats for %d", errno, nlmsgs[0].Header.Pid)
+		return fmt.Errorf("Netlink error code %d getting taskstats for %d", errno, nlmsgs[0].Header.Pid)
 	}
 
+	task.Capturetime = time.Now()
 	var offset int
 	payload := nlmsgs[0].Data
 	endian := binary.LittleEndian
-
-	var stats TaskStats
-	stats.Capturetime = time.Now()
 
 	// these offsets and padding will break if struct taskstats ever changes
 	// gen header 0-3
@@ -103,17 +101,17 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, error) {
 	offset++    // flag
 	offset++    // nice
 	offset += 6 // 6 byte padding
-	stats.Cpudelaycount = endian.Uint64(payload[offset : offset+8])
+	task.Cpudelaycount = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Cpudelaytotal = endian.Uint64(payload[offset : offset+8])
+	task.Cpudelaytotal = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Blkiodelaycount = endian.Uint64(payload[offset : offset+8])
+	task.Blkiodelaycount = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Blkiodelaytotal = endian.Uint64(payload[offset : offset+8])
+	task.Blkiodelaytotal = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Swapindelaycount = endian.Uint64(payload[offset : offset+8])
+	task.Swapindelaycount = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Swapindelaytotal = endian.Uint64(payload[offset : offset+8])
+	task.Swapindelaytotal = endian.Uint64(payload[offset : offset+8])
 	offset += 8
 	offset += 8  // cpu run real total
 	offset += 8  // cpu run virtual total
@@ -125,7 +123,7 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, error) {
 	pid := endian.Uint32(payload[offset : offset+4])
 	offset += 4
 	if pid != tgid {
-		fmt.Printf("read value for unexpected pid %d != %d %+v\n", pid, tgid, stats)
+		fmt.Printf("read value for unexpected pid %d != %d %+v\n", pid, tgid, task)
 	}
 	offset += 4 // etime
 	offset += 4 // btime
@@ -146,19 +144,19 @@ func readGetTaskstatsMessage(conn *NLConn) (*TaskStats, error) {
 	offset += 8 // readbytes
 	offset += 8 // writebytes
 	offset += 8 // cancelled write bytes
-	stats.Nvcsw = endian.Uint64(payload[offset : offset+8])
+	task.Nvcsw = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Nivcsw = endian.Uint64(payload[offset : offset+8])
+	task.Nivcsw = endian.Uint64(payload[offset : offset+8])
 	offset += 8
 	offset += 8 // utimescaled
 	offset += 8 // stimescaled
 	offset += 8 // cputimescaled
-	stats.Freepagesdelaycount = endian.Uint64(payload[offset : offset+8])
+	task.Freepagesdelaycount = endian.Uint64(payload[offset : offset+8])
 	offset += 8
-	stats.Freepagesdelaytotal = endian.Uint64(payload[offset : offset+8])
+	task.Freepagesdelaytotal = endian.Uint64(payload[offset : offset+8])
 	offset += 8
 
-	return &stats, nil
+	return nil
 }
 
 var (
@@ -197,9 +195,9 @@ func sendGetTaskstatsMessage(conn *NLConn, pid int) error {
 	return err
 }
 
-func TaskStatsLookupPid(conn *NLConn, pid int) (*TaskStats, error) {
-	sendGetTaskstatsMessage(conn, pid)
-	return readGetTaskstatsMessage(conn)
+func TaskStatsLookupPid(conn *NLConn, sample *ProcSample) error {
+	sendGetTaskstatsMessage(conn, sample.Pid)
+	return readGetTaskstatsMessage(conn, &sample.Task)
 }
 
 func readGetFamilyMessage(conn *NLConn) (uint16, error) {

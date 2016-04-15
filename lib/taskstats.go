@@ -42,37 +42,35 @@ type TaskStats struct {
 type TaskStatsMap map[int]*TaskStats
 
 // TaskStatsReader uses conn to build a TaskStatsMap for all pids.
-func TaskStatsReader(conn *NLConn, pids Pidlist, maxProcsToScan int) TaskStatsMap {
-	cur := make(TaskStatsMap, maxProcsToScan)
-
-	for _, pid := range pids {
-		stat, err := TaskStatsLookupPid(conn, pid)
+func TaskStatsReader(conn *NLConn, pids Pidlist, cur ProcSampleList) {
+	for i := range cur {
+		err := TaskStatsLookupPid(conn, &cur[i])
 		// it would be better to check for other errors here
 		if err != nil {
 			continue
 		}
-		cur[pid] = stat
 	}
-	return cur
 }
 
 // TaskStatsRecord uses two samples of the system state to update the sum and returns the difference
-func TaskStatsRecord(interval uint32, curMap, prevMap, sumMap TaskStatsMap) TaskStatsMap {
-	deltaMap := make(TaskStatsMap)
+func TaskStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
+	curPos := 0
+	prevPos := 0
 
-	for pid, cur := range curMap {
-		if prev, ok := prevMap[pid]; ok == true {
-			if _, ok := sumMap[pid]; ok == false {
-				sumMap[pid] = &TaskStats{}
-			}
-			deltaMap[pid] = &TaskStats{}
-			delta := deltaMap[pid]
+	for curPos < len(curList) && prevPos < len(prevList) {
+		if curList[curPos].Pid == prevList[prevPos].Pid {
+			cur := &(curList[curPos].Task)
+			prev := &(prevList[prevPos].Task)
+			pid := curList[curPos].Pid
+
+			delta := &(deltaMap[pid].Task)
 
 			delta.Capturetime = cur.Capturetime
 			duration := float64(cur.Capturetime.Sub(prev.Capturetime) / time.Millisecond)
 			scale := float64(interval) / duration
 
-			sum := sumMap[pid]
+			// sumMap[pid] needs to exist
+			sum := &(sumMap[pid].Task)
 			sum.Capturetime = cur.Capturetime
 
 			delta.Cpudelaycount = ScaledSub(cur.Cpudelaycount, prev.Cpudelaycount, scale)
@@ -97,6 +95,4 @@ func TaskStatsRecord(interval uint32, curMap, prevMap, sumMap TaskStatsMap) Task
 			sum.Freepagesdelaytotal += SafeSub(cur.Freepagesdelaytotal, prev.Freepagesdelaytotal)
 		}
 	}
-
-	return deltaMap
 }

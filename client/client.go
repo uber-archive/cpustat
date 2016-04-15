@@ -85,15 +85,16 @@ func main() {
 	err = dec.Decode(&recvCount)
 	procSum := newProcSum(interval, infoMap)
 	for i := uint32(0); i < recvCount; i++ {
-		var procMap cpustat.ProcStatsMap
-		var taskMap cpustat.TaskStatsMap
+		var procList cpustat.ProcSampleList
 		var sys cpustat.SystemStats
 
-		err = dec.Decode(&procMap)
-		err = dec.Decode(&taskMap)
+		err = dec.Decode(&procList)
 		err = dec.Decode(&sys)
 
-		procSum.update(procMap, taskMap, &sys)
+		for pos := range procList {
+			fmt.Printf("%d %d proc: %v task: %v\n", pos, procList[pos].Pid, procList[pos].Proc, procList[pos].Task)
+		}
+		//		procSum.update(procMap, taskMap, &sys)
 	}
 
 	procSum.summarize()
@@ -155,17 +156,17 @@ func (p *procSummary) update(procMap cpustat.ProcStatsMap, taskMap cpustat.TaskS
 		p.sysPrev = sys
 	} else {
 		p.procCur = procMap
-		p.procDelta = cpustat.ProcStatsRecord(p.Interval, p.procCur, p.procPrev, p.procSum)
+		//		p.procDelta = cpustat.ProcStatsRecord(p.Interval, p.procCur, p.procPrev, p.procSum)
 		for pid, delta := range p.procDelta {
 			fmt.Printf("%d: %+v\n", pid, delta)
 		}
 
-		cpustat.UpdateProcStatsHist(p.procHist, p.procDelta)
+		//		cpustat.UpdateProcStatsHist(p.procHist, p.procDelta)
 		p.procPrev = p.procCur
 
 		p.taskCur = taskMap
-		p.taskDelta = cpustat.TaskStatsRecord(p.Interval, p.taskCur, p.taskPrev, p.taskSum)
-		cpustat.UpdateTaskStatsHist(p.taskHist, p.taskDelta)
+		//		p.taskDelta = cpustat.TaskStatsRecord(p.Interval, p.taskCur, p.taskPrev, p.taskSum)
+		//		cpustat.UpdateTaskStatsHist(p.taskHist, p.taskDelta)
 		p.taskPrev = p.taskCur
 
 		p.sysCur = sys

@@ -49,17 +49,15 @@ type SystemStats struct {
 	ProcsBlocked uint64
 }
 
-func SystemStatsReader() (*SystemStats, error) {
+func SystemStatsReader(cur *SystemStats) error {
 	lines, err := ReadFileLines(StatsPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %s", StatsPath, err)
+		return fmt.Errorf("reading %s: %s", StatsPath, err)
 	}
 
 	if len(lines) <= 1 {
-		return nil, fmt.Errorf("reading %s: empty file read", StatsPath)
+		return fmt.Errorf("reading %s: empty file read", StatsPath)
 	}
-
-	cur := SystemStats{}
 
 	for _, line := range lines {
 		parts := strings.Split(strings.TrimSpace(line), " ")
@@ -94,7 +92,7 @@ func SystemStatsReader() (*SystemStats, error) {
 		}
 	}
 
-	return &cur, nil
+	return nil
 }
 
 func SystemStatsRecord(interval uint32, cur, prev, sum *SystemStats) *SystemStats {

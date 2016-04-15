@@ -29,6 +29,15 @@ import (
 
 var procPath = "/proc"
 
+type ProcSample struct {
+	Pid  int
+	Proc ProcStats
+	Task TaskStats
+}
+
+type ProcSampleList []ProcSample
+type ProcSampleMap map[int]*ProcSample
+
 type Pidlist []int
 
 // We churn the pidlist constantly, so this is an optimization to reuse the underlying list every time.
@@ -39,6 +48,7 @@ func GetPidList(list *Pidlist, maxProcsToScan int) {
 	var procNames []string
 	var err error
 
+	return
 	if procDir, err = os.Open(procPath); err != nil {
 		log.Fatalf("Open dir %s:%s", procPath, err)
 	}
@@ -51,6 +61,7 @@ func GetPidList(list *Pidlist, maxProcsToScan int) {
 
 	*list = (*list)[:0]
 	var pid int
+
 	for _, fileName := range procNames {
 		if pid, err = strconv.Atoi(fileName); err != nil {
 			continue
