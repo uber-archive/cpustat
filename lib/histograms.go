@@ -108,7 +108,6 @@ type SystemStatsHist struct {
 	Sys          *hdrhistogram.Histogram
 	Idle         *hdrhistogram.Histogram
 	Iowait       *hdrhistogram.Histogram
-	Ctxt         *hdrhistogram.Histogram
 	ProcsTotal   *hdrhistogram.Histogram
 	ProcsRunning *hdrhistogram.Histogram
 	ProcsBlocked *hdrhistogram.Histogram
@@ -120,6 +119,7 @@ func UpdateSysStatsHist(hist *SystemStatsHist, delta *SystemStats) {
 	hist.Sys.RecordValue(int64(delta.Sys))
 	hist.Idle.RecordValue(int64(delta.Idle))
 	hist.Iowait.RecordValue(int64(delta.Iowait))
+	hist.ProcsTotal.RecordValue(int64(delta.ProcsTotal))
 	hist.ProcsRunning.RecordValue(int64(delta.ProcsRunning))
 	hist.ProcsBlocked.RecordValue(int64(delta.ProcsBlocked))
 }
@@ -131,6 +131,7 @@ func NewSysStatsHist() *SystemStatsHist {
 	hist.Sys = hdrhistogram.New(histMin, histMax, histSigFigs)
 	hist.Idle = hdrhistogram.New(histMin, histMax, histSigFigs)
 	hist.Iowait = hdrhistogram.New(histMin, histMax, histSigFigs)
+	hist.ProcsTotal = hdrhistogram.New(histMin, histMax, histSigFigs)
 	hist.ProcsRunning = hdrhistogram.New(histMin, histMax, histSigFigs)
 	hist.ProcsBlocked = hdrhistogram.New(histMin, histMax, histSigFigs)
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -85,40 +86,42 @@ func main() {
 	err = dec.Decode(&recvCount)
 	procSum := newProcSum(interval, infoMap)
 	for i := uint32(0); i < recvCount; i++ {
-		var procList cpustat.ProcSampleList
+		var procList []cpustat.ProcSample
 		var sys cpustat.SystemStats
 
 		err = dec.Decode(&procList)
 		err = dec.Decode(&sys)
 
-		for pos := range procList {
-			fmt.Printf("%d %d proc: %v task: %v\n", pos, procList[pos].Pid, procList[pos].Proc, procList[pos].Task)
-		}
-		//		procSum.update(procMap, taskMap, &sys)
+		procSum.update(procList, &sys)
 	}
 
 	procSum.summarize()
+
+	if *cpuprofile != "" {
+		pprof.StopCPUProfile()
+	}
 }
 
 type procSummary struct {
-	infoMap   cpustat.ProcInfoMap
-	procCur   cpustat.ProcStatsMap
-	procPrev  cpustat.ProcStatsMap
-	procSum   cpustat.ProcStatsMap
-	procDelta cpustat.ProcStatsMap
-	procHist  cpustat.ProcStatsHistMap
-	taskCur   cpustat.TaskStatsMap
-	taskPrev  cpustat.TaskStatsMap
-	taskSum   cpustat.TaskStatsMap
-	taskDelta cpustat.TaskStatsMap
-	taskHist  cpustat.TaskStatsHistMap
-	sysCur    *cpustat.SystemStats
-	sysPrev   *cpustat.SystemStats
-	sysSum    *cpustat.SystemStats
-	sysDelta  *cpustat.SystemStats
-	sysHist   *cpustat.SystemStatsHist
-	Interval  uint32
-	Samples   uint32
+	infoMap cpustat.ProcInfoMap
+
+	procCur   []cpustat.ProcSample
+	procPrev  []cpustat.ProcSample
+	procSum   cpustat.ProcSampleMap
+	procDelta cpustat.ProcSampleMap
+
+	procHist cpustat.ProcStatsHistMap
+	taskHist cpustat.TaskStatsHistMap
+
+	sysCur   *cpustat.SystemStats
+	sysPrev  *cpustat.SystemStats
+	sysSum   *cpustat.SystemStats
+	sysDelta *cpustat.SystemStats
+
+	sysHist *cpustat.SystemStatsHist
+
+	Interval uint32
+	Samples  uint32
 }
 
 func newProcSum(interval uint32, infoMap cpustat.ProcInfoMap) *procSummary {
@@ -126,22 +129,17 @@ func newProcSum(interval uint32, infoMap cpustat.ProcInfoMap) *procSummary {
 
 	ret.infoMap = infoMap
 
-	ret.procCur = make(cpustat.ProcStatsMap)
-	ret.procPrev = make(cpustat.ProcStatsMap)
-	ret.procSum = make(cpustat.ProcStatsMap)
-	ret.procDelta = make(cpustat.ProcStatsMap)
-	ret.procHist = make(cpustat.ProcStatsHistMap)
+	ret.procSum = make(cpustat.ProcSampleMap)
+	ret.procDelta = make(cpustat.ProcSampleMap)
 
-	ret.taskCur = make(cpustat.TaskStatsMap)
-	ret.taskPrev = make(cpustat.TaskStatsMap)
-	ret.taskSum = make(cpustat.TaskStatsMap)
-	ret.taskDelta = make(cpustat.TaskStatsMap)
+	ret.procHist = make(cpustat.ProcStatsHistMap)
 	ret.taskHist = make(cpustat.TaskStatsHistMap)
 
 	ret.sysCur = &cpustat.SystemStats{}
 	ret.sysPrev = &cpustat.SystemStats{}
 	ret.sysSum = &cpustat.SystemStats{}
 	ret.sysDelta = &cpustat.SystemStats{}
+
 	ret.sysHist = cpustat.NewSysStatsHist()
 
 	ret.Interval = interval
@@ -149,25 +147,19 @@ func newProcSum(interval uint32, infoMap cpustat.ProcInfoMap) *procSummary {
 	return &ret
 }
 
-func (p *procSummary) update(procMap cpustat.ProcStatsMap, taskMap cpustat.TaskStatsMap, sys *cpustat.SystemStats) {
+func (p *procSummary) update(procSamples []cpustat.ProcSample, sys *cpustat.SystemStats) {
 	if p.Samples == 0 {
-		p.procPrev = procMap
-		p.taskPrev = taskMap
+		p.procPrev = procSamples
 		p.sysPrev = sys
 	} else {
-		p.procCur = procMap
-		//		p.procDelta = cpustat.ProcStatsRecord(p.Interval, p.procCur, p.procPrev, p.procSum)
-		for pid, delta := range p.procDelta {
-			fmt.Printf("%d: %+v\n", pid, delta)
-		}
-
-		//		cpustat.UpdateProcStatsHist(p.procHist, p.procDelta)
+		p.procCur = procSamples
+		cur := cpustat.ProcSampleList{p.procCur, uint32(len(p.procCur))}
+		prev := cpustat.ProcSampleList{p.procPrev, uint32(len(p.procPrev))}
+		cpustat.ProcStatsRecord(p.Interval, cur, prev, p.procSum, p.procDelta)
+		cpustat.TaskStatsRecord(p.Interval, cur, prev, p.procSum, p.procDelta)
+		cpustat.UpdateProcStatsHist(p.procHist, p.procDelta)
+		cpustat.UpdateTaskStatsHist(p.taskHist, p.procDelta)
 		p.procPrev = p.procCur
-
-		p.taskCur = taskMap
-		//		p.taskDelta = cpustat.TaskStatsRecord(p.Interval, p.taskCur, p.taskPrev, p.taskSum)
-		//		cpustat.UpdateTaskStatsHist(p.taskHist, p.taskDelta)
-		p.taskPrev = p.taskCur
 
 		p.sysCur = sys
 		p.sysDelta = cpustat.SystemStatsRecord(p.Interval, p.sysCur, p.sysPrev, p.sysSum)
@@ -178,7 +170,51 @@ func (p *procSummary) update(procMap cpustat.ProcStatsMap, taskMap cpustat.TaskS
 	p.Samples++
 }
 
-type procJSON struct {
+type sysJSON struct {
+	Samples uint64
+
+	UsrMin float64
+	UsrMax float64
+	UsrAvg float64
+	UsrP95 float64
+
+	NiceMin float64
+	NiceMax float64
+	NiceAvg float64
+	NiceP95 float64
+
+	SysMin float64
+	SysMax float64
+	SysAvg float64
+	SysP95 float64
+
+	IdleMin float64
+	IdleMax float64
+	IdleAvg float64
+	IdleP95 float64
+
+	IowaitMin float64
+	IowaitMax float64
+	IowaitAvg float64
+	IowaitP95 float64
+
+	ProcsTotalMin float64
+	ProcsTotalMax float64
+	ProcsTotalAvg float64
+	ProcsTotalP95 float64
+
+	ProcsRunningMin float64
+	ProcsRunningMax float64
+	ProcsRunningAvg float64
+	ProcsRunningP95 float64
+
+	ProcsBlockedMin float64
+	ProcsBlockedMax float64
+	ProcsBlockedAvg float64
+	ProcsBlockedP95 float64
+}
+
+type procJSONEntry struct {
 	Samples    uint64
 	Pid        uint64
 	Ppid       uint64
@@ -214,7 +250,58 @@ type procJSON struct {
 	Ivcsw     uint64
 }
 
+type sumJSON struct {
+	Sys  sysJSON
+	Proc []procJSONEntry
+}
+
 func (p *procSummary) summarize() {
+	out := sumJSON{}
+
+	out.Sys.Samples = uint64(p.sysHist.Usr.TotalCount())
+
+	out.Sys.UsrMin = float64(p.sysHist.Usr.Min())
+	out.Sys.UsrMax = float64(p.sysHist.Usr.Max())
+	out.Sys.UsrAvg = p.sysHist.Usr.Mean()
+	out.Sys.UsrP95 = float64(p.sysHist.Usr.ValueAtQuantile(95))
+
+	out.Sys.NiceMin = float64(p.sysHist.Nice.Min())
+	out.Sys.NiceMax = float64(p.sysHist.Nice.Max())
+	out.Sys.NiceAvg = p.sysHist.Nice.Mean()
+	out.Sys.NiceP95 = float64(p.sysHist.Nice.ValueAtQuantile(95))
+
+	out.Sys.SysMin = float64(p.sysHist.Sys.Min())
+	out.Sys.SysMax = float64(p.sysHist.Sys.Max())
+	out.Sys.SysAvg = p.sysHist.Sys.Mean()
+	out.Sys.SysP95 = float64(p.sysHist.Sys.ValueAtQuantile(95))
+
+	out.Sys.IdleMin = float64(p.sysHist.Idle.Min())
+	out.Sys.IdleMax = float64(p.sysHist.Idle.Max())
+	out.Sys.IdleAvg = p.sysHist.Idle.Mean()
+	out.Sys.IdleP95 = float64(p.sysHist.Idle.ValueAtQuantile(95))
+
+	out.Sys.IowaitMin = float64(p.sysHist.Iowait.Min())
+	out.Sys.IowaitMax = float64(p.sysHist.Iowait.Max())
+	out.Sys.IowaitAvg = p.sysHist.Iowait.Mean()
+	out.Sys.IowaitP95 = float64(p.sysHist.Iowait.ValueAtQuantile(95))
+
+	out.Sys.ProcsTotalMin = float64(p.sysHist.ProcsTotal.Min())
+	out.Sys.ProcsTotalMax = float64(p.sysHist.ProcsTotal.Max())
+	out.Sys.ProcsTotalAvg = p.sysHist.ProcsTotal.Mean()
+	out.Sys.ProcsTotalP95 = float64(p.sysHist.ProcsTotal.ValueAtQuantile(95))
+
+	out.Sys.ProcsRunningMin = float64(p.sysHist.ProcsRunning.Min())
+	out.Sys.ProcsRunningMax = float64(p.sysHist.ProcsRunning.Max())
+	out.Sys.ProcsRunningAvg = p.sysHist.ProcsRunning.Mean()
+	out.Sys.ProcsRunningP95 = float64(p.sysHist.ProcsRunning.ValueAtQuantile(95))
+
+	out.Sys.ProcsBlockedMin = float64(p.sysHist.ProcsBlocked.Min())
+	out.Sys.ProcsBlockedMax = float64(p.sysHist.ProcsBlocked.Max())
+	out.Sys.ProcsBlockedAvg = p.sysHist.ProcsBlocked.Mean()
+	out.Sys.ProcsBlockedP95 = float64(p.sysHist.ProcsBlocked.ValueAtQuantile(95))
+
+	out.Proc = make([]procJSONEntry, 0, len(p.procSum))
+
 	for pid, sum := range p.procSum {
 		info, ok := p.infoMap[pid]
 		if ok == false {
@@ -225,49 +312,48 @@ func (p *procSummary) summarize() {
 			panic(fmt.Sprint("missing procHist for", pid))
 		}
 
-		out := procJSON{}
-		out.Pid = info.Pid
-		out.Comm = info.Comm
-		out.Ppid = info.Ppid
-		out.Nice = info.Nice
-		out.Cmdline = info.Cmdline
+		entry := procJSONEntry{}
+		entry.Pid = info.Pid
+		entry.Comm = info.Comm
+		entry.Ppid = info.Ppid
+		entry.Nice = info.Nice
+		entry.Cmdline = info.Cmdline
 
-		out.RSS = sum.Rss
-		out.Numthreads = sum.Numthreads
+		entry.RSS = sum.Proc.Rss
+		entry.Numthreads = sum.Proc.Numthreads
 
-		out.Samples = uint64(hist.Ustime.TotalCount())
+		entry.Samples = uint64(hist.Ustime.TotalCount())
 
-		out.UsrMin = float64(hist.Utime.Min())
-		out.UsrMax = float64(hist.Utime.Max())
-		out.UsrAvg = hist.Utime.Mean()
-		out.UsrP95 = float64(hist.Utime.ValueAtQuantile(95))
+		entry.UsrMin = float64(hist.Utime.Min())
+		entry.UsrMax = float64(hist.Utime.Max())
+		entry.UsrAvg = hist.Utime.Mean()
+		entry.UsrP95 = float64(hist.Utime.ValueAtQuantile(95))
 
-		out.SysMin = float64(hist.Stime.Min())
-		out.SysMax = float64(hist.Stime.Max())
-		out.SysAvg = hist.Stime.Mean()
-		out.SysP95 = float64(hist.Stime.ValueAtQuantile(95))
+		entry.SysMin = float64(hist.Stime.Min())
+		entry.SysMax = float64(hist.Stime.Max())
+		entry.SysAvg = hist.Stime.Mean()
+		entry.SysP95 = float64(hist.Stime.ValueAtQuantile(95))
 
-		out.CUSMin = float64(hist.Ustime.Min())
-		out.CUSMax = float64(hist.Ustime.Max())
-		out.CUSAvg = hist.Ustime.Mean()
-		out.CUSP95 = float64(hist.Ustime.ValueAtQuantile(95))
+		entry.CUSMin = float64(hist.Ustime.Min())
+		entry.CUSMax = float64(hist.Ustime.Max())
+		entry.CUSAvg = hist.Ustime.Mean()
+		entry.CUSP95 = float64(hist.Ustime.ValueAtQuantile(95))
 
-		if task, ok := p.taskSum[pid]; ok == true {
-			out.RunQAvg = float64(task.Cpudelaytotal)
-			out.RunQCount = task.Cpudelaycount
-			out.IOWAvg = float64(task.Blkiodelaytotal)
-			out.IOWCount = task.Blkiodelaycount
-			out.SwapAvg = float64(task.Swapindelaytotal)
-			out.SwapCount = task.Swapindelaycount
-		} else {
-			fmt.Println("no taskSum for", pid)
-		}
-		//		b, err := json.Marshal(out)
-		//		if err != nil {
-		//			panic(err)
-		//		}
-		//		fmt.Println(string(b))
+		entry.RunQAvg = float64(sum.Task.Cpudelaytotal)
+		entry.RunQCount = sum.Task.Cpudelaycount
+		entry.IOWAvg = float64(sum.Task.Blkiodelaytotal)
+		entry.IOWCount = sum.Task.Blkiodelaycount
+		entry.SwapAvg = float64(sum.Task.Swapindelaytotal)
+		entry.SwapCount = sum.Task.Swapindelaycount
+
+		out.Proc = append(out.Proc, entry)
 	}
+
+	b, err := json.Marshal(out)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(b))
 }
 
 func summarizeSys(allSamples []cpustat.SystemStats) {

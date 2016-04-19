@@ -77,8 +77,8 @@ func trunc(str string, length int) string {
 	return str[:length]
 }
 
-func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsMap,
-	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
+func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSampleMap,
+	procHist lib.ProcStatsHistMap, taskHist lib.TaskStatsHistMap,
 	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
 	scale := func(val float64) float64 {
@@ -135,12 +135,12 @@ func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsM
 
 		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
-		if task, ok := taskSum[pid]; ok == true {
-			cpuDelay = trim(scaleSumUs(float64(task.Cpudelaytotal), sampleCount), 7)
-			blockDelay = trim(scaleSumUs(float64(task.Blkiodelaytotal), sampleCount), 7)
-			swapDelay = trim(scaleSumUs(float64(task.Swapindelaytotal), sampleCount), 7)
-			nvcsw = formatNum(task.Nvcsw)
-			nivcsw = formatNum(task.Nivcsw)
+		if proc, ok := procSum[pid]; ok == true {
+			cpuDelay = trim(scaleSumUs(float64(proc.Task.Cpudelaytotal), sampleCount), 7)
+			blockDelay = trim(scaleSumUs(float64(proc.Task.Blkiodelaytotal), sampleCount), 7)
+			swapDelay = trim(scaleSumUs(float64(proc.Task.Swapindelaytotal), sampleCount), 7)
+			nvcsw = formatNum(proc.Task.Nvcsw)
+			nivcsw = formatNum(proc.Task.Nivcsw)
 		}
 
 		fmt.Printf("%23s %7d %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d\n",
@@ -148,17 +148,17 @@ func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsM
 			pid,
 			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
 			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
-			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
-			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].Proc.Utime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].Proc.Stime), sampleCount), 7),
 			infoMap[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,
 			nvcsw,
 			nivcsw,
-			formatMem(procSum[pid].Rss),
-			trim(scaleSum(float64(procSum[pid].Cutime+procSum[pid].Cstime), sampleCount), 7),
-			procSum[pid].Numthreads,
+			formatMem(procSum[pid].Proc.Rss),
+			trim(scaleSum(float64(procSum[pid].Proc.Cutime+procSum[pid].Proc.Cstime), sampleCount), 7),
+			procSum[pid].Proc.Numthreads,
 			sampleCount,
 		)
 	}

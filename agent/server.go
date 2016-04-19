@@ -31,33 +31,37 @@ import (
 	"log"
 	"time"
 
+	"github.com/uber-common/cpustat/lib"
 	"github.com/uber/tchannel-go"
 	"github.com/uber/tchannel-go/raw"
 	"golang.org/x/net/context"
 )
 
-type rawHandler struct{}
+type rawHandler struct {
+	memdb   *MemDB
+	infoMap cpustat.ProcInfoMap
+}
 
-func (rawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) {
+func (r rawHandler) Handle(ctx context.Context, args *raw.Args) (*raw.Res, error) {
 	switch args.Method {
 	case "readSamples":
 		return &raw.Res{
 			Arg2: []byte{},
-			Arg3: gobEncodeSamples(args.Arg3),
+			Arg3: gobEncodeSamples(args.Arg3, r),
 		}, nil
 	case "readSys":
 		return &raw.Res{
 			Arg2: []byte{},
-			Arg3: gobEncodeSys(args.Arg3),
+			Arg3: gobEncodeSys(args.Arg3, r),
 		}, nil
 	}
 	return nil, fmt.Errorf("unhandled: (%s)", args.Method)
 }
 
-func gobEncodeSys(countBytes []byte) []byte {
+func gobEncodeSys(countBytes []byte, r rawHandler) []byte {
 	count := binary.LittleEndian.Uint32(countBytes)
 
-	samples := readSamples(count)
+	samples := r.memdb.ReadSamples(count)
 	var valBuf bytes.Buffer
 	enc := gob.NewEncoder(&valBuf)
 
@@ -79,10 +83,10 @@ func gobEncodeSys(countBytes []byte) []byte {
 	return valBuf.Bytes()
 }
 
-func gobEncodeSamples(countBytes []byte) []byte {
+func gobEncodeSamples(countBytes []byte, r rawHandler) []byte {
 	count := binary.LittleEndian.Uint32(countBytes)
 
-	samples := readSamples(count)
+	samples := r.memdb.ReadSamples(count)
 	var valBuf bytes.Buffer
 	enc := gob.NewEncoder(&valBuf)
 
@@ -91,7 +95,7 @@ func gobEncodeSamples(countBytes []byte) []byte {
 	}
 
 	infolock.Lock()
-	if err := enc.Encode(infoMap); err != nil {
+	if err := enc.Encode(r.infoMap); err != nil {
 		panic(err)
 	}
 	infolock.Unlock()
@@ -107,10 +111,10 @@ func gobEncodeSamples(countBytes []byte) []byte {
 	}
 
 	for _, sample := range samples {
-		if err := enc.Encode(sample.ProcSampleList); err != nil {
+		if err := enc.Encode(sample.Proc.Samples[0:sample.Proc.Len]); err != nil {
 			panic(err)
 		}
-		if err := enc.Encode(sample.SystemStats); err != nil {
+		if err := enc.Encode(sample.Sys); err != nil {
 			panic(err)
 		}
 	}
@@ -121,13 +125,13 @@ func (rawHandler) OnError(ctx context.Context, err error) {
 	log.Fatalf("OnError: %v", err)
 }
 
-func runServer() {
+func runServer(memdb *MemDB, infoMap cpustat.ProcInfoMap) {
 	ch, err := tchannel.NewChannel("cpustat", nil)
 	if err != nil {
 		log.Fatalf("NewChannel failed: %v", err)
 	}
 
-	handler := raw.Wrap(rawHandler{})
+	handler := raw.Wrap(rawHandler{memdb, infoMap})
 	ch.Register(handler, "readSamples")
 	ch.Register(handler, "readSys")
 	ch.Register(handler, "status")

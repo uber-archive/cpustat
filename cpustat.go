@@ -111,14 +111,14 @@ func main() {
 
 	infoMap := make(lib.ProcInfoMap)
 
-	procCur := make(lib.ProcSampleList, 0, *maxProcsToScan)
-	procPrev := make(lib.ProcSampleList, 0, *maxProcsToScan)
+	procCur := lib.NewProcSampleList(*maxProcsToScan)
+	procPrev := lib.NewProcSampleList(*maxProcsToScan)
 	procSum := make(lib.ProcSampleMap)
 	procHist := make(lib.ProcStatsHistMap)
 	taskHist := make(lib.TaskStatsHistMap)
 
-	var sysCur *lib.SystemStats
-	var sysPrev *lib.SystemStats
+	var sysCur lib.SystemStats
+	var sysPrev lib.SystemStats
 	var sysSum *lib.SystemStats
 	var sysHist *lib.SystemStatsHist
 
@@ -131,8 +131,8 @@ func main() {
 	var err error
 	lib.GetPidList(&pids, *maxProcsToScan)
 	lib.ProcStatsReader(pids, &procPrev, infoMap)
-	lib.TaskStatsReader(nlConn, pids, procPrev)
-	err = lib.SystemStatsReader(sysPrev)
+	lib.TaskStatsReader(nlConn, pids, &procPrev)
+	err = lib.SystemStatsReader(&sysPrev)
 	if err != nil {
 		panic(err)
 	}
@@ -153,7 +153,7 @@ func main() {
 			lib.GetPidList(&pids, *maxProcsToScan)
 
 			lib.ProcStatsReader(pids, &procCur, infoMap)
-			lib.TaskStatsReader(nlConn, pids, procCur)
+			lib.TaskStatsReader(nlConn, pids, &procCur)
 
 			procDelta := make(lib.ProcSampleMap, len(pids))
 			lib.ProcStatsRecord(intervalms, procCur, procPrev, procSum, procDelta)
@@ -161,12 +161,12 @@ func main() {
 			lib.TaskStatsRecord(intervalms, procCur, procPrev, procSum, procDelta)
 			lib.UpdateTaskStatsHist(taskHist, procDelta)
 
-			procPrev = procCur
+			procPrev, procCur = procCur, procPrev
 
-			if err = lib.SystemStatsReader(sysCur); err != nil {
+			if err = lib.SystemStatsReader(&sysCur); err != nil {
 				log.Fatal(err)
 			}
-			sysDelta := lib.SystemStatsRecord(intervalms, sysCur, sysPrev, sysSum)
+			sysDelta := lib.SystemStatsRecord(intervalms, &sysCur, &sysPrev, sysSum)
 			lib.UpdateSysStatsHist(sysHist, sysDelta)
 			sysPrev = sysCur
 
@@ -189,9 +189,7 @@ func main() {
 			dumpStats(infoMap, topPids, procSum, procHist, taskHist, sysSum, sysHist, *jiffy, *interval, *samples)
 		}
 		procHist = make(lib.ProcStatsHistMap)
-		procSum = make(lib.ProcStatsMap)
-		taskHist = make(lib.TaskStatsHistMap)
-		taskSum = make(lib.TaskStatsMap)
+		procSum = make(lib.ProcSampleMap)
 		sysHist = lib.NewSysStatsHist()
 		sysSum = &lib.SystemStats{}
 		t2 = time.Now()

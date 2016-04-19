@@ -35,6 +35,7 @@ package cpustat
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
 	"strings"
 	"time"
 )
@@ -61,25 +62,25 @@ type ProcInfo struct {
 type ProcInfoMap map[int]*ProcInfo
 
 func (m ProcInfoMap) MaybePrune(chance float64, pids Pidlist, expiry time.Duration) {
-	// if rand.Float64() >= chance {
-	// 	return
-	// }
+	if rand.Float64() >= chance {
+		return
+	}
 
-	// pidMap := make(map[int]bool)
-	// for pid, _ := range pids {
-	// 	pidMap[pid] = true
-	// }
-	// var removed uint32
-	// oldest := time.Now().Add(-expiry) // yes, t.Add(-d) is the way you do this
-	// for pid, info := range m {
-	// 	if _, ok := pidMap[pid]; ok == false {
-	// 		if info.LastSeen.Before(oldest) {
-	// 			removed++
-	// 			delete(m, pid)
-	// 		}
-	// 	}
-	// }
-	// fmt.Println("pruned", removed, "entries from infoMap")
+	pidMap := make(map[int]bool)
+	for pid, _ := range pids {
+		pidMap[pid] = true
+	}
+	var removed uint32
+	oldest := time.Now().Add(-expiry) // yes, t.Add(-d) is the way you do this
+	for pid, info := range m {
+		if _, ok := pidMap[pid]; ok == false {
+			if info.LastSeen.Before(oldest) {
+				removed++
+				delete(m, pid)
+			}
+		}
+	}
+	fmt.Println("pruned", removed, "entries from infoMap")
 }
 
 func (p *ProcInfo) init() {
