@@ -42,9 +42,9 @@ type TaskStats struct {
 type TaskStatsMap map[int]*TaskStats
 
 // TaskStatsReader uses conn to build a TaskStatsMap for all pids.
-func TaskStatsReader(conn *NLConn, pids Pidlist, cur ProcSampleList) {
-	for i := range cur {
-		err := TaskStatsLookupPid(conn, &cur[i])
+func TaskStatsReader(conn *NLConn, pids Pidlist, cur *ProcSampleList) {
+	for i := uint32(0); i < cur.Len; i++ {
+		err := TaskStatsLookupPid(conn, &cur.Samples[i])
 		// it would be better to check for other errors here
 		if err != nil {
 			continue
@@ -54,14 +54,14 @@ func TaskStatsReader(conn *NLConn, pids Pidlist, cur ProcSampleList) {
 
 // TaskStatsRecord uses two samples of the system state to update the sum and returns the difference
 func TaskStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
-	curPos := 0
-	prevPos := 0
+	curPos := uint32(0)
+	prevPos := uint32(0)
 
-	for curPos < len(curList) && prevPos < len(prevList) {
-		if curList[curPos].Pid == prevList[prevPos].Pid {
-			cur := &(curList[curPos].Task)
-			prev := &(prevList[prevPos].Task)
-			pid := curList[curPos].Pid
+	for curPos < curList.Len && prevPos < prevList.Len {
+		if curList.Samples[curPos].Pid == prevList.Samples[prevPos].Pid {
+			cur := &(curList.Samples[curPos].Task)
+			prev := &(prevList.Samples[prevPos].Task)
+			pid := curList.Samples[curPos].Pid
 
 			delta := &(deltaMap[pid].Task)
 
@@ -75,6 +75,7 @@ func TaskStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, 
 
 			delta.Cpudelaycount = ScaledSub(cur.Cpudelaycount, prev.Cpudelaycount, scale)
 			sum.Cpudelaycount += SafeSub(cur.Cpudelaycount, prev.Cpudelaycount)
+
 			delta.Cpudelaytotal = ScaledSub(cur.Cpudelaytotal, prev.Cpudelaytotal, scale)
 			sum.Cpudelaytotal += SafeSub(cur.Cpudelaytotal, prev.Cpudelaytotal)
 			delta.Blkiodelaycount = ScaledSub(cur.Blkiodelaycount, prev.Blkiodelaycount, scale)
@@ -93,6 +94,14 @@ func TaskStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, 
 			sum.Freepagesdelaycount += SafeSub(cur.Freepagesdelaycount, prev.Freepagesdelaycount)
 			delta.Freepagesdelaytotal = ScaledSub(cur.Freepagesdelaytotal, prev.Freepagesdelaytotal, scale)
 			sum.Freepagesdelaytotal += SafeSub(cur.Freepagesdelaytotal, prev.Freepagesdelaytotal)
+			curPos++
+			prevPos++
+		} else {
+			if curList.Samples[curPos].Pid < prevList.Samples[prevPos].Pid {
+				curPos++
+			} else {
+				prevPos++
+			}
 		}
 	}
 }

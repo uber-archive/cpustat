@@ -163,8 +163,8 @@ func tuiInit(ch chan string, interval int) {
 }
 
 // this is a lot of copy/paste from dumpStats. Would be good to refactor this to share.
-func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcStatsMap,
-	procHist lib.ProcStatsHistMap, taskSum lib.TaskStatsMap, taskHist lib.TaskStatsHistMap,
+func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSampleMap,
+	procHist lib.ProcStatsHistMap, taskHist lib.TaskStatsHistMap,
 	sysSum *lib.SystemStats, sysHist *lib.SystemStatsHist, jiffy, interval, samples int) {
 
 	// if something in here panics, the output goes to the screen, which conflicts with termbox mode.
@@ -201,12 +201,12 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSt
 
 		var cpuDelay, blockDelay, swapDelay, nvcsw, nivcsw string
 
-		if task, ok := taskSum[pid]; ok == true {
-			cpuDelay = trim(scaleSumUs(float64(task.Cpudelaytotal), sampleCount), 7)
-			blockDelay = trim(scaleSumUs(float64(task.Blkiodelaytotal), sampleCount), 7)
-			swapDelay = trim(scaleSumUs(float64(task.Swapindelaytotal), sampleCount), 7)
-			nvcsw = formatNum(task.Nvcsw)
-			nivcsw = formatNum(task.Nivcsw)
+		if proc, ok := procSum[pid]; ok == true {
+			cpuDelay = trim(scaleSumUs(float64(proc.Task.Cpudelaytotal), sampleCount), 7)
+			blockDelay = trim(scaleSumUs(float64(proc.Task.Blkiodelaytotal), sampleCount), 7)
+			swapDelay = trim(scaleSumUs(float64(proc.Task.Swapindelaytotal), sampleCount), 7)
+			nvcsw = formatNum(proc.Task.Nvcsw)
+			nivcsw = formatNum(proc.Task.Nivcsw)
 		}
 
 		strPid := fmt.Sprint(pid)
@@ -218,17 +218,17 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSt
 			colorPos,
 			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
 			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
-			trim(scaleSum(float64(procSum[pid].Utime), sampleCount), 7),
-			trim(scaleSum(float64(procSum[pid].Stime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].Proc.Utime), sampleCount), 7),
+			trim(scaleSum(float64(procSum[pid].Proc.Stime), sampleCount), 7),
 			infoMap[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,
 			nvcsw,
 			nivcsw,
-			formatMem(procSum[pid].Rss),
-			trim(scaleSum(float64(procSum[pid].Cutime+procSum[pid].Cstime), sampleCount), 7),
-			procSum[pid].Numthreads,
+			formatMem(procSum[pid].Proc.Rss),
+			trim(scaleSum(float64(procSum[pid].Proc.Cutime+procSum[pid].Proc.Cstime), sampleCount), 7),
+			procSum[pid].Proc.Numthreads,
 			sampleCount,
 		)
 		colorPos = (colorPos + 1) % len(colorList)
@@ -237,8 +237,8 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSt
 	termui.Render(mainList)
 }
 
-func tuiGraphUpdate(procDelta lib.ProcStatsMap, sysDelta *lib.SystemStats, taskDelta lib.TaskStatsMap,
-	topPids lib.Pidlist, jiffy, interval uint32) {
+func tuiGraphUpdate(procDelta lib.ProcSampleMap, sysDelta *lib.SystemStats, topPids lib.Pidlist,
+	jiffy, interval uint32) {
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 4096)
@@ -271,9 +271,9 @@ func tuiGraphUpdate(procDelta lib.ProcStatsMap, sysDelta *lib.SystemStats, taskD
 		updatedPids[pid] = true
 		if _, ok := procChartData[pid]; ok == false {
 			procChartData[pid] = make([]float64, 1, chartBackingSize)
-			procChartData[pid][0] = scale(float64(delta.Utime + delta.Stime))
+			procChartData[pid][0] = scale(float64(delta.Proc.Utime + delta.Proc.Stime))
 		} else {
-			procChartData[pid] = append(procChartData[pid], scale(float64(delta.Utime+delta.Stime)))
+			procChartData[pid] = append(procChartData[pid], scale(float64(delta.Proc.Utime+delta.Proc.Stime)))
 		}
 	}
 

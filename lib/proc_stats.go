@@ -28,6 +28,26 @@ import (
 	"time"
 )
 
+type ProcSample struct {
+	Pid  int
+	Proc ProcStats
+	Task TaskStats
+}
+
+type ProcSampleList struct {
+	Samples []ProcSample
+	Len     uint32
+}
+
+func NewProcSampleList(size int) ProcSampleList {
+	return ProcSampleList{
+		make([]ProcSample, size),
+		0,
+	}
+}
+
+type ProcSampleMap map[int]*ProcSample
+
 // ProcStats holds the fast changing data that comes back from /proc/[pid]/stat
 // These fields are documented in the linux proc(5) man page
 // There are many more of these fields that don't change very often. These are stored in the Cmdline struct.
@@ -106,7 +126,7 @@ func procPidStatSplit(line string) []string {
 
 // ProcStatsReader reads and parses /proc/[pid]/stat for all of pids
 func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
-	for _, pid := range pids {
+	for sampleNum, pid := range pids {
 		lines, err := ReadFileLines(fmt.Sprintf("/proc/%d/stat", pid))
 		// pid could have exited between when we scanned the dir and now
 		if err != nil {
@@ -116,20 +136,17 @@ func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 		// this format of this file is insane because comm can have split chars in it
 		parts := procPidStatSplit(lines[0])
 
-		sample := ProcSample{}
+		sample := &cur.Samples[sampleNum]
 		sample.Pid = pid
-		sample.Proc = ProcStats{
-			time.Now(),
-			ReadUInt(parts[13]), // utime
-			ReadUInt(parts[14]), // stime
-			ReadUInt(parts[15]), // cutime
-			ReadUInt(parts[16]), // cstime
-			ReadUInt(parts[19]), // num_threads
-			ReadUInt(parts[23]), // rss
-			ReadUInt(parts[42]), // guest_time
-			ReadUInt(parts[43]), // cguest_time
-		}
-		*cur = append(*cur, sample)
+		sample.Proc.CaptureTime = time.Now()
+		sample.Proc.Utime = ReadUInt(parts[13])
+		sample.Proc.Stime = ReadUInt(parts[14])
+		sample.Proc.Cutime = ReadUInt(parts[15])
+		sample.Proc.Cstime = ReadUInt(parts[16])
+		sample.Proc.Numthreads = ReadUInt(parts[19])
+		sample.Proc.Rss = ReadUInt(parts[23])
+		sample.Proc.Guesttime = ReadUInt(parts[42])
+		sample.Proc.Cguesttime = ReadUInt(parts[43])
 
 		if info, ok := infoMap[pid]; ok == true {
 			info.touch()
@@ -152,19 +169,20 @@ func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 			infoMap[pid] = &info
 		}
 	}
+	cur.Len = uint32(len(pids))
 }
 
 // compute the delta between this sample and the previous one.
 func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
 
-	curPos := 0
-	prevPos := 0
+	curPos := uint32(0)
+	prevPos := uint32(0)
 
-	for curPos < len(curList) && prevPos < len(prevList) {
-		if curList[curPos].Pid == prevList[prevPos].Pid {
-			cur := &(curList[curPos].Proc)
-			prev := &(prevList[prevPos].Proc)
-			pid := curList[curPos].Pid
+	for curPos < curList.Len && prevPos < prevList.Len {
+		if curList.Samples[curPos].Pid == prevList.Samples[prevPos].Pid {
+			cur := &(curList.Samples[curPos].Proc)
+			prev := &(prevList.Samples[prevPos].Proc)
+			pid := curList.Samples[curPos].Pid
 
 			if _, ok := sumMap[pid]; ok == false {
 				sumMap[pid] = &ProcSample{}
@@ -173,7 +191,7 @@ func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, 
 			delta := &(deltaMap[pid].Proc)
 
 			delta.CaptureTime = cur.CaptureTime
-			duration := float64(delta.CaptureTime.Sub(prev.CaptureTime) / time.Millisecond)
+			duration := float64(cur.CaptureTime.Sub(prev.CaptureTime) / time.Millisecond)
 			scale := float64(interval) / duration
 
 			sum := &(sumMap[pid].Proc)
@@ -193,7 +211,7 @@ func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, 
 			curPos++
 			prevPos++
 		} else {
-			if curList[curPos].Pid < prevList[prevPos].Pid {
+			if curList.Samples[curPos].Pid < prevList.Samples[prevPos].Pid {
 				curPos++
 			} else {
 				prevPos++
@@ -201,6 +219,3 @@ func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, 
 		}
 	}
 }
-
-// 1 2 3 4   6 7
-//     3 4 5   7 8 9

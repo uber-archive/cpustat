@@ -54,7 +54,7 @@ func main() {
 	var dbSize = flag.Int("dbsize", 3000, "samples to keep in memory")
 	var maxProcsToScan = flag.Int("maxprocs", 3000, "max size of process table")
 	var statsInterval = flag.String("statsinterval", "1s", "print usage statistics to stdout, 0s to disable")
-	//	var pruneChance = flag.Float64("prunechance", 0.01, "percentage of intervals to also prune old cmdline data")
+	var pruneChance = flag.Float64("prunechance", 0.001, "percentage of intervals to also prune old cmdline data")
 
 	if os.Geteuid() != 0 {
 		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
@@ -101,12 +101,12 @@ func main() {
 		os.Exit(0)
 	}()
 
-	dbInit(uint32(*dbSize))
-	//	expiry := time.Duration(*dbSize**interval) * time.Millisecond
+	memdb := MemDB{}
+	memdb.Init(uint32(*dbSize), uint32(*maxProcsToScan))
 
-	//	nlConn := cpustat.NLInit()
+	expiry := time.Duration(*dbSize**interval) * time.Millisecond
 
-	sys := &cpustat.SystemStats{}
+	nlConn := cpustat.NLInit()
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -114,18 +114,19 @@ func main() {
 
 	pids := make(cpustat.Pidlist, 0, *maxProcsToScan)
 	infoMap := make(cpustat.ProcInfoMap, *maxProcsToScan)
-	cur := make(cpustat.ProcSampleList, 0, *maxProcsToScan)
+
+	sample := memdb.ReserveSample()
 
 	t1 = time.Now()
 	cpustat.GetPidList(&pids, *maxProcsToScan)
-	cpustat.ProcStatsReader(pids, &cur, infoMap)
-	//	cpustat.TaskStatsReader(nlConn, pids, cur)
-	cpustat.SystemStatsReader(sys)
-	writeSample(cur, sys)
+	cpustat.ProcStatsReader(pids, &sample.Proc, infoMap)
+	cpustat.TaskStatsReader(nlConn, pids, &sample.Proc)
+	cpustat.SystemStatsReader(&sample.Sys)
+	memdb.ReleaseSample()
 
-	go runServer()
+	go runServer(&memdb, infoMap)
 
-	go printStats(*statsInterval)
+	go printStats(*statsInterval, &memdb)
 
 	go func() {
 		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
@@ -142,17 +143,18 @@ func main() {
 		// the time it takes to do all of the work will vary, so measure it each time and sleep for remainder
 		t1 = time.Now()
 
-		cur = make(cpustat.ProcSampleList, 0, *maxProcsToScan)
+		sample := memdb.ReserveSample()
+		cur := &sample.Proc
 
-		//cpustat.GetPidList(&pids, *maxProcsToScan)
-		//		infolock.Lock()
-		// cpustat.ProcStatsReader(pids, &cur, infoMap)
-		//		cpustat.TaskStatsReader(nlConn, pids, cur)
-		//		infoMap.MaybePrune(*pruneChance, pids, expiry)
-		//		infolock.Unlock()
-		// _ = cpustat.SystemStatsReader(sys)
-		writeSample(cur, sys)
-		runtime.GC()
+		cpustat.GetPidList(&pids, *maxProcsToScan)
+		infolock.Lock()
+		cpustat.ProcStatsReader(pids, cur, infoMap)
+		cpustat.TaskStatsReader(nlConn, pids, cur)
+		infoMap.MaybePrune(*pruneChance, pids, expiry)
+		infolock.Unlock()
+		cpustat.SystemStatsReader(&sample.Sys)
+		memdb.ReleaseSample()
+
 		t2 = time.Now()
 		adjustedSleep = adjustSleep(targetSleep, t1, t2)
 	}
@@ -163,27 +165,28 @@ func adjustSleep(target time.Duration, t1, t2 time.Time) time.Duration {
 
 	// If we can't keep up, try to buy ourselves a little headroom by sleeping for a magic number of extra ms
 	if adjustedSleep <= 0 {
-		fmt.Fprintf(os.Stderr, "warning: work cycle took longer than sampling interval by %dms\n", adjustedSleep)
+		fmt.Fprintf(os.Stderr, "warning: work cycle took longer than sampling interval by %s\n", adjustedSleep)
 		adjustedSleep = target + (time.Duration(100) * time.Millisecond)
 	}
 	return adjustedSleep
 }
 
-func printStats(s string) {
+func printStats(s string, memdb *MemDB) {
 	dur, err := time.ParseDuration(s)
 	if err != nil {
 		panic(err)
 	}
 
+	start := time.Now()
 	for {
 		var curUsage syscall.Rusage
 		err = syscall.Getrusage(syscall.RUSAGE_SELF, &curUsage)
 		if err != nil {
 			panic(err)
 		}
-		pcount, scount := dbStats()
-		fmt.Printf("rss: %.2fMB db entries: %d procs: %d sys: %d\n",
-			float64(curUsage.Maxrss)/1024, dbCount(), pcount, scount)
+		pcount, scount := memdb.DBStats()
+		fmt.Printf("dur: %s rss: %.2fMB db entries: %d procs: %d sys: %d\n",
+			time.Now().Sub(start), float64(curUsage.Maxrss)/1024, memdb.DBCount(), pcount, scount)
 		time.Sleep(dur)
 	}
 }
