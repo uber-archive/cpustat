@@ -172,7 +172,10 @@ func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 	cur.Len = uint32(len(pids))
 }
 
-// compute the delta between this sample and the previous one.
+// ProcStatsRecord computes the delta between the Proc elements of two ProcSampleLists
+// These lists do not need to have exactly the same processes in it, but they must both be sorted by Pid.
+// This generally works out because reading the pids from /proc puts them in a consistent order.
+// If we ever get a new source of the pidlist, perf_events or whatever, make sure it sorts.
 func ProcStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
 
 	curPos := uint32(0)

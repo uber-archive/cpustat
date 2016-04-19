@@ -52,7 +52,10 @@ func TaskStatsReader(conn *NLConn, pids Pidlist, cur *ProcSampleList) {
 	}
 }
 
-// TaskStatsRecord uses two samples of the system state to update the sum and returns the difference
+// TaskStatsRecord computes the delta between Task elements of two ProcSampleLists
+// These lists do not need to have exactly the same processes in it, but they must both be sorted by Pid.
+// This generally works out because reading the pids from /proc puts them in a consistent order.
+// If we ever get a new source of the pidlist, perf_events or whatever, make sure it sorts.
 func TaskStatsRecord(interval uint32, curList, prevList ProcSampleList, sumMap, deltaMap ProcSampleMap) {
 	curPos := uint32(0)
 	prevPos := uint32(0)
