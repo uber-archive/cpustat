@@ -102,7 +102,7 @@ func ReadUInt(str string) uint64 {
 	return val
 }
 
-// pull a int64 out of a string
+// pull an int64 out of a string
 func ReadInt(str string) int64 {
 	val, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
