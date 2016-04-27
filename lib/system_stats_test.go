@@ -50,7 +50,8 @@ func TestEmptyFile(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = SystemStatsReader()
+	sys := SystemStats{}
+	err = SystemStatsReader(&sys)
 	if err == nil {
 		t.Error("empty stats file should be an error but isn't")
 	}
@@ -76,7 +77,8 @@ func TestLinuxPre2633(t *testing.T) {
 		t.Error(err)
 	}
 
-	stats, err := SystemStatsReader()
+	stats := SystemStats{}
+	err = SystemStatsReader(&stats)
 	if err != nil {
 		t.Error(err)
 	}
@@ -144,7 +146,8 @@ func TestLinuxPost2633(t *testing.T) {
 		t.Error(err)
 	}
 
-	stats, err := SystemStatsReader()
+	stats := SystemStats{}
+	err = SystemStatsReader(&stats)
 	if err != nil {
 		t.Error(err)
 	}

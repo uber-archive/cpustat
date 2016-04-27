@@ -141,6 +141,9 @@ func dumpStats(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSample
 			swapDelay = trim(scaleSumUs(float64(proc.Task.Swapindelaytotal), sampleCount), 7)
 			nvcsw = formatNum(proc.Task.Nvcsw)
 			nivcsw = formatNum(proc.Task.Nivcsw)
+		} else {
+			fmt.Println("pid", pid, "missing at sum time")
+			continue
 		}
 
 		fmt.Printf("%23s %7d %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d\n",
