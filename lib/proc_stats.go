@@ -125,8 +125,30 @@ func procPidStatSplit(line string) []string {
 }
 
 // ProcStatsReader reads and parses /proc/[pid]/stat for all of pids
-func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
-	for sampleNum, pid := range pids {
+func ProcStatsReader(pids Pidlist, filter Filters, cur *ProcSampleList, infoMap ProcInfoMap) {
+	sampleNum := 0
+	pidNum := 0
+	for pidNum < len(pids) {
+		pid := pids[pidNum]
+		pidNum++
+
+		if filter.PidMatch(pid) == false {
+			continue
+		}
+		newPid := false
+
+		// we don't know the userid of this proc to filter until we read/stat /proc/pid/cmdline
+		// Do this only when we find a pid for the first time so we don't have to stat as much
+		var info *ProcInfo
+		var ok bool
+		if info, ok = infoMap[pid]; ok == true {
+			info.touch()
+		} else {
+			newPid = true
+			info = &ProcInfo{}
+			info.init()
+		}
+
 		lines, err := ReadFileLines(fmt.Sprintf("/proc/%d/stat", pid))
 		// pid could have exited between when we scanned the dir and now
 		if err != nil {
@@ -136,23 +158,7 @@ func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 		// this format of this file is insane because comm can have split chars in it
 		parts := procPidStatSplit(lines[0])
 
-		sample := &cur.Samples[sampleNum]
-		sample.Pid = pid
-		sample.Proc.CaptureTime = time.Now()
-		sample.Proc.Utime = ReadUInt(parts[13])
-		sample.Proc.Stime = ReadUInt(parts[14])
-		sample.Proc.Cutime = ReadUInt(parts[15])
-		sample.Proc.Cstime = ReadUInt(parts[16])
-		sample.Proc.Numthreads = ReadUInt(parts[19])
-		sample.Proc.Rss = ReadUInt(parts[23])
-		sample.Proc.Guesttime = ReadUInt(parts[42])
-		sample.Proc.Cguesttime = ReadUInt(parts[43])
-
-		if info, ok := infoMap[pid]; ok == true {
-			info.touch()
-		} else {
-			info := ProcInfo{}
-			info.init()
+		if newPid {
 			info.Comm = strings.Map(StripSpecial, parts[1])
 			info.Pid = uint64(pid)
 			info.Ppid = ReadUInt(parts[3])
@@ -165,11 +171,28 @@ func ProcStatsReader(pids Pidlist, cur *ProcSampleList, infoMap ProcInfoMap) {
 			info.Nice = ReadInt(parts[18])
 			info.Rtpriority = ReadUInt(parts[39])
 			info.Policy = ReadUInt(parts[40])
-			info.updateCmdline()
-			infoMap[pid] = &info
+			info.updateCmdline() // note that this may leave UID at 0 if there's an error
+			infoMap[pid] = info
 		}
+
+		if filter.UserMatch(int(info.UID)) == false {
+			continue
+		}
+
+		sample := &cur.Samples[sampleNum]
+		sample.Pid = pid
+		sample.Proc.CaptureTime = time.Now()
+		sample.Proc.Utime = ReadUInt(parts[13])
+		sample.Proc.Stime = ReadUInt(parts[14])
+		sample.Proc.Cutime = ReadUInt(parts[15])
+		sample.Proc.Cstime = ReadUInt(parts[16])
+		sample.Proc.Numthreads = ReadUInt(parts[19])
+		sample.Proc.Rss = ReadUInt(parts[23])
+		sample.Proc.Guesttime = ReadUInt(parts[42])
+		sample.Proc.Cguesttime = ReadUInt(parts[43])
+		sampleNum++
 	}
-	cur.Len = uint32(len(pids))
+	cur.Len = uint32(sampleNum)
 }
 
 // ProcStatsRecord computes the delta between the Proc elements of two ProcSampleLists

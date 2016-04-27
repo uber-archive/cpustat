@@ -37,9 +37,11 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
+	"syscall"
 	"time"
 )
 
+// ProcInfo holds properties of a process that don't change very often or can't change
 type ProcInfo struct {
 	FirstSeen  time.Time
 	LastSeen   time.Time
@@ -57,6 +59,7 @@ type ProcInfo struct {
 	Nice       int64
 	Rtpriority uint64
 	Policy     uint64
+	UID        uint32
 }
 
 type ProcInfoMap map[int]*ProcInfo
@@ -70,6 +73,7 @@ func (m ProcInfoMap) MaybePrune(chance float64, pids Pidlist, expiry time.Durati
 	for pid, _ := range pids {
 		pidMap[pid] = true
 	}
+
 	var removed uint32
 	oldest := time.Now().Add(-expiry) // yes, t.Add(-d) is the way you do this
 	for pid, info := range m {
@@ -96,12 +100,16 @@ func (p *ProcInfo) updateCmdline() {
 	nullSep := []byte{0}
 	spaceSep := []byte{32}
 
-	raw, err := ReadSmallFile(fmt.Sprintf("/proc/%d/cmdline", p.Pid))
+	raw, stat, err := ReadSmallFileStat(fmt.Sprintf("/proc/%d/cmdline", p.Pid))
 	if err != nil { // proc exited before we could check, or some other even worse problem
 		p.Friendly = p.Comm
 		return
 	}
 
+	// Note this not well documented way to get a UID from a stat
+	p.UID = stat.Sys().(*syscall.Stat_t).Uid
+
+	// some things in the process table do not have a command line
 	if len(raw) == 0 {
 		p.Friendly = p.Comm
 		return
