@@ -53,6 +53,8 @@ func main() {
 	var memprofile = flag.String("memprofile", "", "write memory profile to this file")
 	var dbSize = flag.Int("dbsize", 3000, "samples to keep in memory")
 	var maxProcsToScan = flag.Int("maxprocs", 3000, "max size of process table")
+	var usrOnly = flag.String("u", "", "only show procs owned by this list of users")
+	var pidOnly = flag.String("p", "", "only show procs in this list of pids")
 	var statsInterval = flag.String("statsinterval", "1s", "print usage statistics to stdout, 0s to disable")
 	var pruneChance = flag.Float64("prunechance", 0.001, "percentage of intervals to also prune old cmdline data")
 
@@ -106,6 +108,8 @@ func main() {
 
 	expiry := time.Duration(*dbSize**interval) * time.Millisecond
 
+	filters := cpustat.FiltersInit(*usrOnly, *pidOnly)
+
 	nlConn := cpustat.NLInit()
 
 	rand.Seed(time.Now().UnixNano())
@@ -119,7 +123,7 @@ func main() {
 
 	t1 = time.Now()
 	cpustat.GetPidList(&pids, *maxProcsToScan)
-	cpustat.ProcStatsReader(pids, &sample.Proc, infoMap)
+	cpustat.ProcStatsReader(pids, filters, &sample.Proc, infoMap)
 	cpustat.TaskStatsReader(nlConn, pids, &sample.Proc)
 	cpustat.SystemStatsReader(&sample.Sys)
 	memdb.ReleaseSample()
@@ -148,7 +152,7 @@ func main() {
 
 		cpustat.GetPidList(&pids, *maxProcsToScan)
 		infolock.Lock()
-		cpustat.ProcStatsReader(pids, cur, infoMap)
+		cpustat.ProcStatsReader(pids, filters, cur, infoMap)
 		cpustat.TaskStatsReader(nlConn, pids, cur)
 		infoMap.MaybePrune(*pruneChance, pids, expiry)
 		infolock.Unlock()
