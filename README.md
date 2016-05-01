@@ -37,26 +37,51 @@ If you have `glide`, you can use `glide install` to get consistent dependencies.
 
 This program uses Linux taskstats, which requires root.
 
-Here are the command line flags:
+Here are the command line flags most users will want:
 
 Flag | Description | Default
 -----|-------------|--------
 -i | sample interval in milliseconds | 200
 -s | summarize after this many samples | 10
 -n | display top n processes | 10
--jiffy | set the Linux clock tick duration time in milliseconds | 100
+-maxprocs | truncate process list if it exceed this | 2048
+-p | only measure processes in this list of pids | none
+-u | only measure processes owned by this list of users | none
 -t | use fancy termui mode | false
--cpuprofile | write CPU pprof data to this file | none
--memprofile | write memory pprof data to this file | none
 
-Example:
+There are also a few less common options:
+
+Flag | Description | Default
+-----|-------------|--------
+-jiffy | set the Linux clock tick duration time in milliseconds | 100
+-cpuprofile | write CPU pprof data of cpustat itself to this file | none
+-memprofile | write memory pprof data of cpustat itself to this file | none
+
+Examples:
 
 ```
-sudo cpustat -s=500 -s=10 -n=20
+sudo cpustat -s 500 -s 10 -n 20
 ```
 
 This will take a sample of all processes every 500ms and summarize this data after 10
 samples, which is every 5 seconds.
+
+```
+sudo cpustat -u mjr,mranney
+```
+
+Only measure processes that are owned by either user `mjr` or user
+`mranney`. The overall system stats will still be measured.
+
+```
+sudo ./cpustat -p $(pgrep -d, vim\|emacs)
+```
+
+Only measure processes that pgrep thinks are called "vim" or "emacs". The `-p`
+option to `cpustat` takes a list of process ids to measure, and `pgrep` is a
+handy way to get this list. The `-d,` option to `pgrep` prints the list of
+matching pids with a comma separator.
+
 
 ## Displayed Values
 

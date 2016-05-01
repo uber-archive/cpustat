@@ -1,6 +1,7 @@
 package cpustat
 
 import (
+	"fmt"
 	"log"
 	"os/user"
 	"regexp"
@@ -47,8 +48,10 @@ func ParsePidList(s string) ([]int, error) {
 }
 
 type Filters struct {
-	User []int
-	Pid  []int
+	User    []int
+	UserStr []string
+	Pid     []int
+	PidStr  []string
 }
 
 func (f Filters) PidMatch(pid int) bool {
@@ -91,6 +94,10 @@ func FiltersInit(user, pid string) Filters {
 			log.Fatal(err)
 		}
 		sort.Ints(ret.User)
+		ret.UserStr = make([]string, len(ret.User))
+		for i := range ret.User {
+			ret.UserStr[i] = fmt.Sprint(ret.User[i])
+		}
 	}
 
 	if pid != "" {
@@ -99,6 +106,10 @@ func FiltersInit(user, pid string) Filters {
 			log.Fatal(err)
 		}
 		sort.Ints(ret.Pid)
+		ret.PidStr = make([]string, len(ret.Pid))
+		for i := range ret.Pid {
+			ret.PidStr[i] = fmt.Sprint(ret.Pid[i])
+		}
 	}
 
 	return ret
