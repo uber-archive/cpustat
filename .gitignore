@@ -1,4 +1,8 @@
 cpustat
+agent/agent
+client/client
+cover.out
+example/taskstats/taskstats
 .gobuild
 *~
 *.pprof
