@@ -39,6 +39,7 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"sort"
+	"strings"
 	"time"
 
 	lib "github.com/uber-common/cpustat/lib"
@@ -110,6 +111,24 @@ func main() {
 
 	if *useTui {
 		go tuiInit(uiQuitChan, *interval)
+	} else {
+		fmt.Printf("sampling interval:%s, summary interval:%s (%d samples), showing top %d procs,",
+			time.Duration(*interval)*time.Millisecond,
+			time.Duration(*interval**samples)*time.Millisecond,
+			intervalms, *topN)
+		fmt.Print(" user filter:")
+		if len(filters.User) == 0 {
+			fmt.Print("all")
+		} else {
+			fmt.Print(strings.Join(filters.UserStr, ","))
+		}
+		fmt.Print(", pid filter:")
+		if len(filters.Pid) == 0 {
+			fmt.Print("all")
+		} else {
+			fmt.Print(strings.Join(filters.PidStr, ","))
+		}
+		fmt.Println()
 	}
 
 	infoMap := make(lib.ProcInfoMap)
