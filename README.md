@@ -150,12 +150,55 @@ So let's put this comptuer to work:
 
 ![Idle](https://ranney.com/cpustat_images/1__ssh 2.png)
 
-I'm running a single instance of "CPU Burn-In" that shows up as `burnP6`. This process uses a single CPU.
-We can see that the overall system now reports only about 300%, and that `burnP6` is only using a single
-thread from the `thrd` column.
+I'm running a single instance of "CPU Burn-In" that shows up as `burnP6`. This process uses a single
+CPU.  We can see that the overall system now reports only about 300% idle, and that `burnP6` is only
+using a single thread from the `thrd` column.
+
+We can also see that the `runq` column for `burnP6` shows 0.4 on the first summary interval. This
+means that for the duration of the summary interval, 0.4% of an effective CPU's time was asked for
+by a process, but that process wasn't scheduled for whatever reason. During the same interval, `icx`
+is a lot higher than normal.  `icx` is "involuntary context switches". It's hard to say exactly what
+caused this, but we can also see that several other processes have non-0 `iow` or "IO wait". During
+that interval, `prun` had a max value of 5.0, so a few things probably woke up at the same time to
+do some brief work, caused a bit of interference, then went back to sleep.
+
+During the second summary interval, the `runq` is back to 0, so `burnP6` is getting all of the time
+it wants. It's also curious to note that the `burnP6` pretty clearly reports its CPU usage as 100%
+`usr` time, the overall system `usr` doesn't line up with this at 60.0/77.2/95.0, but the system
+`idle` does. I'm not exactly sure what causes this, but it's something about how `burnP6` works and
+Linux accounts for it. Many other single threaded programs in a tight loop do not exhibit this
+behavior.
+
+I have another program to generate a more irregular an in my experience more realistic workload
+called `wastetime`. This program uses many threads, tries to wake them up at the same time to do
+some work, then sleeps for a bit.
 
 ![Idle](https://ranney.com/cpustat_images/1__ssh 3.png)
+
+For some of the samples, we wake up and find `wastetime` using 0 CPU, and sometimes we find it 300%
+because `burnP6` is using the other 100%. `wastetime` reports a `runq` time of around 230%. This
+means that we'd need approximately 2.3 more CPUs on average to do all of the work and avoid
+delay. This is the average delay, but we can see from the `prun` max that we pretty regularly need
+35 CPUs to avoid absolutely all delays.
+
+We also see that `wastetime` is causing a little bit of `runq` interference for `burnP6`.
+
+This is what it looks like to run 10 parallel instances of `go build` in this vm on the `cpustat`
+source with:
+
+```
+for C in {0..10}; do echo $C ; (go build &) ; done
+```
+
 ![Idle](https://ranney.com/cpustat_images/1__ssh 4.png)
+
+This is obviously way more work than my little vm can manage, so we've triggered some major CPU
+saturation.
+
+Nearly every process running on the machine is spending more time in the `runq` than we'd like. Even
+so, there is still some idle time left in the system. That can be explained by the `swap` time and
+`iowait` time. Also note that the `sam` column is all less than 20. That means these are all short
+lived processes, which are often hard to account for.
 
 ## Data Sources
 
