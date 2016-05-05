@@ -194,7 +194,7 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSa
 	mainList.Items = make([]string, len(list)+1)
 	colorPos := 0
 
-	mainList.Items[0] = fmt.Sprint("                        comm     pid     min     max     usr     sys  nice    runq     iow    swap   ctx   icx   rss   ctime thrd  sam")
+	mainList.Items[0] = fmt.Sprint("                      name    pid     min     max     usr     sys    runq     iow    swap   vcx   icx   ctime   rss nice thrd  sam\n")
 
 	for i, pid := range list {
 		sampleCount := procHist[pid].Ustime.TotalCount()
@@ -207,12 +207,12 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSa
 			swapDelay = trim(scaleSumUs(float64(proc.Task.Swapindelaytotal), sampleCount), 7)
 			nvcsw = formatNum(proc.Task.Nvcsw)
 			nivcsw = formatNum(proc.Task.Nivcsw)
-		}
+		} // silently ignore missing data in fancy mode
 
 		strPid := fmt.Sprint(pid)
 		graphColors[strPid] = colorList[colorPos]
 
-		mainList.Items[i+1] = fmt.Sprintf("[%28s %7d](fg-color%d) %7s %7s %7s %7s %5d %7s %7s %7s %5s %5s %5s %7s %4d %4d",
+		mainList.Items[i+1] = fmt.Sprintf("[%26s %6d](fg-color%d) %7s %7s %7s %7s %7s %7s %7s %5s %5s %7s %5s %4d %4d %4d",
 			trunc(infoMap[pid].Friendly, 28),
 			pid,
 			colorPos,
@@ -220,14 +220,14 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSa
 			trim(scale(float64(procHist[pid].Ustime.Max())), 7),
 			trim(scaleSum(float64(procSum[pid].Proc.Utime), sampleCount), 7),
 			trim(scaleSum(float64(procSum[pid].Proc.Stime), sampleCount), 7),
-			infoMap[pid].Nice,
 			cpuDelay,
 			blockDelay,
 			swapDelay,
 			nvcsw,
 			nivcsw,
-			formatMem(procSum[pid].Proc.Rss),
 			trim(scaleSum(float64(procSum[pid].Proc.Cutime+procSum[pid].Proc.Cstime), sampleCount), 7),
+			formatMem(procSum[pid].Proc.Rss),
+			infoMap[pid].Nice,
 			procSum[pid].Proc.Numthreads,
 			sampleCount,
 		)
