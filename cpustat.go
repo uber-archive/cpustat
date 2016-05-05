@@ -18,8 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-// Variable frequency CPU usage sampling on Linux via /proc
-// Maybe this will turn into something like prstat on Solaris
+// Variable frequency CPU usage sampling via /proc and delay stats via netlink
 
 // easy
 // TODO - tui use keyboard to highlight a proc to make it be on top
@@ -27,7 +26,6 @@
 
 // hard
 // TODO - use netlink to watch for processes exiting, or perf_events for start/exit
-// TODO - split into long running backend and multiple frontends
 
 package main
 
@@ -39,11 +37,58 @@ import (
 	"os/signal"
 	"runtime/pprof"
 	"sort"
-	"strings"
 	"time"
 
 	lib "github.com/uber-common/cpustat/lib"
 )
+
+func checkPrivs() {
+	if os.Geteuid() != 0 {
+		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
+		os.Exit(1)
+	}
+}
+
+func maybeStartProfile(argStr string) {
+	if argStr != "" {
+		f, err := os.Create(argStr)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err = pprof.StartCPUProfile(f); err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func waitForExit(memprofile string) chan string {
+	uiQuitChan := make(chan string)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
+	go func() {
+		select {
+		case <-sigChan:
+			fmt.Fprintln(os.Stderr, "quitting on signal")
+		case msg := <-uiQuitChan:
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		pprof.StopCPUProfile()
+
+		if memprofile != "" {
+			f, err := os.Create(memprofile)
+			if err != nil {
+				log.Fatal(err)
+			}
+			pprof.WriteHeapProfile(f)
+			f.Close()
+		}
+
+		os.Exit(0)
+	}()
+
+	return uiQuitChan
+}
 
 func main() {
 	var interval = flag.Int("i", 200, "interval (ms) between measurements")
@@ -59,76 +104,23 @@ func main() {
 
 	flag.Parse()
 
-	if os.Geteuid() != 0 {
-		fmt.Println("This program uses the netlink taskstats inteface, so it must be run as root.")
-		os.Exit(1)
-	}
+	checkPrivs()
 
-	if *interval <= 10 {
+	if *interval < 10 {
 		fmt.Println("The minimum sampling interval is 10ms")
 		os.Exit(1)
 	}
 	intervalms := uint32(*interval)
 
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if err = pprof.StartCPUProfile(f); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	uiQuitChan := make(chan string)
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-
-	go func() {
-		select {
-		case <-sigChan:
-			fmt.Fprintln(os.Stderr, "quitting on signal")
-		case msg := <-uiQuitChan:
-			fmt.Fprintln(os.Stderr, msg)
-		}
-		pprof.StopCPUProfile()
-
-		if *memprofile != "" {
-			f, err := os.Create(*memprofile)
-			if err != nil {
-				log.Fatal(err)
-			}
-			pprof.WriteHeapProfile(f)
-			f.Close()
-		}
-
-		os.Exit(0)
-	}()
-
+	maybeStartProfile(*cpuprofile)
+	uiQuitChan := waitForExit(*memprofile)
 	filters := lib.FiltersInit(*usrOnly, *pidOnly)
-
 	nlConn := lib.NLInit()
 
 	if *useTui {
 		go tuiInit(uiQuitChan, *interval)
 	} else {
-		fmt.Printf("sampling interval:%s, summary interval:%s (%d samples), showing top %d procs,",
-			time.Duration(*interval)*time.Millisecond,
-			time.Duration(*interval**samples)*time.Millisecond,
-			intervalms, *topN)
-		fmt.Print(" user filter:")
-		if len(filters.User) == 0 {
-			fmt.Print("all")
-		} else {
-			fmt.Print(strings.Join(filters.UserStr, ","))
-		}
-		fmt.Print(", pid filter:")
-		if len(filters.Pid) == 0 {
-			fmt.Print("all")
-		} else {
-			fmt.Print(strings.Join(filters.PidStr, ","))
-		}
-		fmt.Println()
+		textInit(*interval, *samples, *topN, filters)
 	}
 
 	infoMap := make(lib.ProcInfoMap)
