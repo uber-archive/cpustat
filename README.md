@@ -134,7 +134,28 @@ Name | Description
 
 ## Understanding the Output
 
+Here are a few examples of running `cpustat` on a 4 processor vm on my laptop.
 
+The first is a mostly idle system where the only thing really running is `cpustat` itself:
+
+![Idle](https://ranney.com/cpustat_images/1__ssh.png)
+
+The `idle` min/avg/max shows that for most of the 20 samples, the system was almost completely idle.
+We can tell that because we know this is a 4 processor system, so the maximum value for `idle` is 400.
+It's perhaps a little surprising then that `prun` would show 1.0/1.1/3.0, meaning that we never woke up
+to find fewer than 1 process running. On an idle system, surely that number should be lower. What's
+happening is that `cpustat` ends up measuring itself as the single running process.
+
+So let's put this comptuer to work:
+
+![Idle](https://ranney.com/cpustat_images/1__ssh 2.png)
+
+I'm running a single instance of "CPU Burn-In" that shows up as `burnP6`. This process uses a single CPU.
+We can see that the overall system now reports only about 300%, and that `burnP6` is only using a single
+thread from the `thrd` column.
+
+![Idle](https://ranney.com/cpustat_images/1__ssh 3.png)
+![Idle](https://ranney.com/cpustat_images/1__ssh 4.png)
 
 ## Data Sources
 
