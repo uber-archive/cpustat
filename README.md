@@ -2,19 +2,19 @@
 
 [![Join the chat at https://gitter.im/uber-common/cpustat](https://badges.gitter.im/uber-common/cpustat.svg)](https://gitter.im/uber-common/cpustat?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-Cpustat is a tool for Linux systems to measure performance. You can think of it like a
-fancy sort of "top" that does different things. This project is motived by Brendan Gregg's
+`cpustat` is a tool for Linux systems to measure performance. You can think of it like a
+fancy sort of `top` that does different things. This project is motived by Brendan Gregg's
 [USE Method](http://www.brendangregg.com/usemethod.html) and tries to expose CPU
 utilization and saturation in a helpful way.
 
 Most performance tools average CPU usage over a few seconds or even a minute. This can
 create the illusion of excess capacity because brief spikes in resource usage are blended
-in with less busy periods. Cpustat takes higher frequency samples of every process running
+in with less busy periods. `cpustat` takes higher frequency samples of every process running
 on the machine and then summarizes these samples at a lower frequency. For example, it can
 measure every process every 200ms and summarize these samples every 5 seconds, including
-min/max/average values for some metrics.
+min/average/max values for some metrics.
 
-There are two ways of displaying this data, a pure text list of the summary interval
+There are two ways of displaying this data: a pure text list of the summary interval
 and a colorful scrolling dashboard of each sample.
 
 Here are examples of both modes observing the same workload:
@@ -25,7 +25,7 @@ Here are examples of both modes observing the same workload:
 
 ## Installation
 
-To install the latest version of cpustat and all of its dependencies, try this:
+To install the latest version of `cpustat` and all of its dependencies, try this:
 
 ```
 go get github.com/uber-common/cpustat
@@ -41,21 +41,21 @@ Here are the command line flags most users will want:
 
 Flag | Description | Default
 -----|-------------|--------
--i | sample interval in milliseconds | 200
--s | summarize after this many samples | 10
--n | display top n processes | 10
--maxprocs | truncate process list if it exceed this | 2048
--p | only measure processes in this list of pids | none
--u | only measure processes owned by this list of users | none
--t | use fancy termui mode | false
+`-i` | sample interval in milliseconds | 200
+`-s` | summarize after this many samples | 10
+`-n` | display top n processes | 10
+`-maxprocs` | truncate process list if it exceed this | 2048
+`-p` | only measure processes in this list of pids | none
+`-u` | only measure processes owned by this list of users | none
+`-t` | use fancy termui mode | false
 
 There are also a few less common options:
 
 Flag | Description | Default
 -----|-------------|--------
--jiffy | set the Linux clock tick duration time in milliseconds | 100
--cpuprofile | write CPU pprof data of cpustat itself to this file | none
--memprofile | write memory pprof data of cpustat itself to this file | none
+`-jiffy` | set the Linux clock tick duration time in milliseconds | 100
+`-cpuprofile` | write CPU pprof data of cpustat itself to this file | none
+`-memprofile` | write memory pprof data of cpustat itself to this file | none
 
 Examples:
 
@@ -89,13 +89,13 @@ In pure text mode, there are some system-wide summary metrics that come from /pr
 
 Name | Description
 -----|------------
-usr | min/max/avg user mode run time as a percentage of a CPU
-sys | min/max/avg system mode run time as a percentage of a CPU
-nice | min/max/avg user mode low priority run time as a percentage of a CPU
-idle | min/max/avg user mode run time as a percentage of a CPU
-iowait | min/max/avg user mode run time as a percentage of a CPU
-prun | min/max/avg count of processes in a runnable state
-pblock | min/max/avg count of processes blocked on disk IO
+usr | min/avg/max user mode run time as a percentage of a CPU
+sys | min/avg/max system mode run time as a percentage of a CPU
+nice | min/avg/max user mode low priority run time as a percentage of a CPU
+idle | min/avg/max user mode run time as a percentage of a CPU
+iowait | min/avg/max delay time waiting for disk IO
+prun | min/avg/max count of processes in a runnable state (load average)
+pblock | min/avg/max count of processes blocked on disk IO
 pstart | number of processes/threads started in this summary interval
 
 In fancy scrolling dashboard mode, the unique panes are as follows:
@@ -115,20 +115,26 @@ Both modes display the same per-process summary data. The fields are:
 
 Name | Description
 -----|------------
-comm | Common Name from /proc/pid/stat or /proc/pid/cmdline. There is some logic to resolve common patterns into more useful names for common things.
-pid | Top level process id, sometimes referred to as "tgid" min | lowest sample for combined user and system time for this pid, measured from /proc/pid/stat. Scale is a percentage of a CPU.
-max | highest sample for combined user and system time for this pid, measured from /proc/pid/stat.
-usr | average user time for this pid over the summary period, measured from /proc/pid/stat. This should be similar to what "top" reports.
-sys | average system time for this pid over the summary period, measured from /proc/pid/stat. This should be similar to what "top" reports.
-nice | current "nice" value for this process, measured from /proc/pid/stat. Higher is "nicer".
-runq | time this process and all of its threads spent runnable but waiting to run, measured from taskstats via netlink. Scale is a percentage of a CPU.
-iow | time this process and all of its threads spent blocked by disk IO, measured from taskstats via netlink. Scale is a percentage of a CPU.
-swap | time this process and all of its threads spent waiting to be swapped in, measured from taskstats via netlink. Scale is a percentage of a CPU.
-ctx | number of voluntary context switches by this process and all of its threads, measured from taskstats via netlink.
-icx | number of involuntary context switches by this process and all of its threads, measured from taskstats via netlink.
-rss | current RSS value measured from /proc/pid/stat. This is the amount of memory this process is using.
-ctime | CPU time consumed by waited for children that exited during this summary interval, measured from /proc/pid/stat. Long running child processes can often confuse this measurement, because the time is reported only when the child process exits. However, this is useful for measuring the impact of frequent cron jobs and health checks where the CPU time is often consumed by many child processes.
-thrd | Number of threads at the end of the summary interval, measured from /proc/pid/stat.
+`name` | common Name from /proc/pid/stat or /proc/pid/cmdline. There is some logic to resolve common patterns into more useful names for common things.
+`pid` | Top level process id, sometimes referred to as "tgid"
+`min` | lowest sample of combined user and system time for this pid, measured from /proc/pid/stat. Scale is a percentage of a CPU.
+`max` | highest sample of combined user and system time for this pid, measured from /proc/pid/stat.
+`usr` | average user time for this pid over the summary period, measured from /proc/pid/stat. This plus `sys` should be similar to what "top" reports.
+`sys` | average system time for this pid over the summary period, measured from /proc/pid/stat. This plus `usr` should be similar to what "top" reports.
+`nice` | current "nice" value for this process, measured from /proc/pid/stat. Higher is "nicer".
+`runq` | time this process and all of its threads spent runnable but waiting to run, measured from taskstats via netlink. Scale is a percentage of a CPU.
+`iow` | time this process and all of its threads spent blocked by disk IO, measured from taskstats via netlink. Scale is a percentage of a CPU, averaged over the summary interval.
+`swap` | time this process and all of its threads spent waiting to be swapped in, measured from taskstats via netlink. Scale is a percentage of a CPU, averaged over the summary interval.
+`vcx` | total number of voluntary context switches by this process and all of its threads over the summary interval, measured from taskstats via netlink.
+`icx` | total number of involuntary context switches by this process and all of its threads over the summary interval, measured from taskstats via netlink.
+`rss` | current RSS value measured from /proc/pid/stat. This is the amount of memory this process is using.
+`ctime` | total user+sys CPU time consumed by waited for children that exited during this summary interval, measured from /proc/pid/stat. Long running child processes can often confuse this measurement, because the time is reported only when the child process exits. However, this is useful for measuring the impact of frequent cron jobs and health checks where the CPU time is often consumed by many child processes.
+`thrd` | Number of threads at the end of the summary interval, measured from /proc/pid/stat.
+`sam` | number of samples for this process included in the summary interval. Processes that have recently started or exited may have been visible for fewer samples than the summary interval.
+
+## Understanding the Output
+
+
 
 ## Data Sources
 
@@ -139,11 +145,11 @@ Every sample interval, the following data sources are checked:
 * If this is a new pid, read /proc/pid/cmdline
 * For each pid, send a netlink message to fetch the taskstats, compute difference from
   previous sample.
-* Fetch /proc/stat
+* Fetch /proc/stat to get the overall system stats
 
 Each sleep interval is adjusted to account for the amount of time spent fetching all of
 these stats. Each sample also records the time it was taken to scale each measurement by
-the actual elapsed time between samples. This attempts to account for delays in cpustat
+the actual elapsed time between samples. This attempts to account for delays in `cpustat`
 itself.
 
 ## Run within a Docker container
@@ -155,7 +161,7 @@ itself.
 ## Limitations
 
 There are many important limitations to understand before drawing conclusions from
-cpustat's output.
+`cpustat`'s output.
 
 The first is that all sampling systems are subject to
 [Nyquist](https://en.wikipedia.org/wiki/Nyquist_rate), which is both a practical reality
@@ -166,14 +172,15 @@ measure many common performance problems.
 Linux CPU time accounting is done in terms of whole "clock ticks", which are often
 100ms. This can cause some strange values when sampling every 200ms. Common problems are
 that CPU utilization will appear to slightly exceed the maximum number of CPUs on the
-system.
+system. On a very lightly loaded system, sometimes processes will appear to oscillate
+between 0 percent and some higher number.
 
 There is no way to get a consistent snapshot of all processes on a Linux system. After we
 scan /proc to get the process list, new processes could come and go. Processes could exit
 at any time along the process of scanning /proc, reading /proc/cmdline, /proc/pid/stat, or
 netlink taskstats.
 
-cpustat itself can cause the very problems it was written to expose by doing a burst of
+`cpustat` itself can cause the very problems it was written to expose by doing a burst of
 work on a regular interval. It would be nicer to the underlying system to spread the work
 out evenly over the sampling interval instead of trying to do it all at once.
 
@@ -183,10 +190,16 @@ must be run as root.
 In spite of these limitations, this tool has already been useful in understanding
 performance problems on production systems. I hope it's useful to you as well.
 
+## Agent
+
+In addition to the interactive version of `cpustat`, a long running measurement server is
+available in the `agent` directory. This program uses only the measurement logic to record
+the raw samples in a circular buffer. The data in the agent can be collected by the
+`client` program. This can be used to summarize the system state for publishing metrics to
+other systems. For example, instead of recording the average CPU utilization over a minute
+like many metrics systems do, you could report the min/avg/max CPU utilization over a
+minute or any other interval.
+
 ## Future Work
 
 There is an almost an endless set of UI-type features that would be nice.
-
-The largest planned change is to split the collection framework apart from the rendering
-one. That way you can leave this collection agent running constantly, and then connect
-multiple other frontends for UIs or sending metrics to a common aggregation system.
