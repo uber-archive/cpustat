@@ -146,7 +146,7 @@ It's perhaps a little surprising then that `prun` would show 1.0/1.1/3.0, meanin
 to find fewer than 1 process running. On an idle system, surely that number should be lower. What's
 happening is that `cpustat` ends up measuring itself as the single running process.
 
-So let's put this comptuer to work:
+So let's put this computer to work:
 
 ![Idle](https://ranney.com/cpustat_images/1__ssh 2.png)
 
