@@ -213,7 +213,7 @@ func tuiListUpdate(infoMap lib.ProcInfoMap, list lib.Pidlist, procSum lib.ProcSa
 		graphColors[strPid] = colorList[colorPos]
 
 		mainList.Items[i+1] = fmt.Sprintf("[%26s %6d](fg-color%d) %7s %7s %7s %7s %7s %7s %7s %5s %5s %7s %5s %4d %4d %4d",
-			trunc(infoMap[pid].Friendly, 28),
+			trunc(infoMap[pid].Friendly, 26),
 			pid,
 			colorPos,
 			trim(scale(float64(procHist[pid].Ustime.Min())), 7),
