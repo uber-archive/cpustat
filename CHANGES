@@ -1,0 +1,22 @@
+Version 1.1.0:
+ - Merge pull request #24 from eculver/enc.ui
+ - Fix UI offset bug in termui mode
+ - Merge pull request #23 from john-pettigrew/readme-typo-fix
+ - Fix typo in README.md
+ - Update README
+ - Update README.md
+ - Refacotr main to be not quite so gigantic
+ - Change triples to min/avg/max
+ - Update readme and include some pre-interval output
+ - Added user and pid filters, removed some accidentally included other files.
+ - Teach agent about filters.
+ - Add user/pid filters
+ - Add some comments.
+ - Do primary allocations at startup.
+ - WiP 2 - still fragmenting like crazy
+ - WiP - trim memory usage, add client JSON output
+ - Merge pull request #18 from NanXiao/patch-1
+ - Fix typo in util.go.
+
+Version 1.0.0:
+ - Initial release
