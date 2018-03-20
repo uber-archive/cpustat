@@ -54,7 +54,10 @@ func SystemStatsReader(cur *SystemStats) error {
 	if err != nil {
 		return fmt.Errorf("reading %s: %s", StatsPath, err)
 	}
+	return SystemStatsReaderFromLines(cur, lines)
+}
 
+func SystemStatsReaderFromLines(cur *SystemStats, lines []string) error {
 	if len(lines) <= 1 {
 		return fmt.Errorf("reading %s: empty file read", StatsPath)
 	}
