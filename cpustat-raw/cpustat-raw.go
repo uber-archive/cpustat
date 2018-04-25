@@ -69,9 +69,9 @@ func main() {
 		"proc.cguesttime",
 	)
 
-	t1 := time.Now()
-
 	for procStatsReaderCount > 0 && samplesRemaining != 0 {
+		startOfRead := time.Now()
+
 		for i, procStatsReader := range procStatsReaders {
 			if procStatsReader == nil {
 				continue
@@ -104,10 +104,8 @@ func main() {
 		}
 
 		if procStatsReaderCount > 0 && samplesRemaining != 0 {
-			t2 := time.Now()
-			adjustedSleep := targetSleep - t2.Sub(t1)
+			adjustedSleep := targetSleep - time.Now().Sub(startOfRead)
 			time.Sleep(adjustedSleep)
-			t1 = time.Now()
 		}
 	}
 }
