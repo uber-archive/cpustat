@@ -3,10 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/uber-common/cpustat/lib"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/uber-common/cpustat/lib"
 )
 
 func main() {
