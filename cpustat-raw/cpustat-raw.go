@@ -12,14 +12,12 @@ import (
 
 func main() {
 	var (
-		interval    = flag.Int("i", 200, "Interval (ms) between measurements")
+		interval    = flag.Duration("i", 200*time.Millisecond, "duration between measurements")
 		pidList     = flag.String("p", "", "Comma separated PID list to profile")
 		sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
 	)
 
 	flag.Parse()
-
-	targetSleep := time.Duration(*interval) * time.Millisecond
 
 	pidStrings := strings.Split(*pidList, ",")
 	pids := make([]int, len(pidStrings))
@@ -104,8 +102,10 @@ func main() {
 		}
 
 		if procStatsReaderCount > 0 && samplesRemaining != 0 {
-			adjustedSleep := targetSleep - time.Now().Sub(startOfRead)
-			time.Sleep(adjustedSleep)
+			if adjustedSleep := *interval - time.Now().Sub(startOfRead); adjustedSleep > 0 {
+				// TODO actually probably some minimum sleep tolerance
+				time.Sleep(adjustedSleep)
+			}
 		}
 	}
 }
