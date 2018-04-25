@@ -10,8 +10,10 @@ import (
 )
 
 func main() {
-	var interval = flag.Int("i", 200, "interval (ms) between measurements")
+	var interval = flag.Int("i", 200, "Interval (ms) between measurements")
 	var pidList = flag.String("p", "", "Comma separated PID list to profile")
+	var sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
+
 	flag.Parse()
 
 	targetSleep := time.Duration(*interval) * time.Millisecond
@@ -32,6 +34,11 @@ func main() {
 	procStats := cpustat.ProcStats{}
 	procStatsReaderCount := len(pids)
 	procStatsReaders := make([]*cpustat.ProcStatsSeekReader, procStatsReaderCount)
+
+	samplesRemaining := int64(*sampleCount)
+	if samplesRemaining == 0 {
+		samplesRemaining = -1
+	}
 
 	for i, pid := range pids {
 		procStatsReader := cpustat.ProcStatsSeekReader{
@@ -61,7 +68,7 @@ func main() {
 
 	t1 := time.Now()
 
-	for procStatsReaderCount > 0 {
+	for procStatsReaderCount > 0 && samplesRemaining != 0 {
 		for i, procStatsReader := range procStatsReaders {
 			if procStatsReader == nil {
 				continue
@@ -89,7 +96,11 @@ func main() {
 			)
 		}
 
-		if procStatsReaderCount > 0 {
+		if samplesRemaining > 0 {
+			samplesRemaining--
+		}
+
+		if procStatsReaderCount > 0 && samplesRemaining != 0 {
 			t2 := time.Now()
 			adjustedSleep := targetSleep - t2.Sub(t1)
 			time.Sleep(adjustedSleep)
