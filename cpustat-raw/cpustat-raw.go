@@ -11,9 +11,11 @@ import (
 )
 
 func main() {
-	var interval = flag.Int("i", 200, "Interval (ms) between measurements")
-	var pidList = flag.String("p", "", "Comma separated PID list to profile")
-	var sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
+	var (
+		interval    = flag.Int("i", 200, "Interval (ms) between measurements")
+		pidList     = flag.String("p", "", "Comma separated PID list to profile")
+		sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
+	)
 
 	flag.Parse()
 
