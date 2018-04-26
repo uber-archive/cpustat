@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -10,26 +11,43 @@ import (
 	"github.com/uber-common/cpustat/lib"
 )
 
+type pidList []int
+
+func (pl *pidList) String() string {
+	if pl == nil {
+		return ""
+	}
+	ss := make([]string, len(*pl))
+	for i, pid := range *pl {
+		ss[i] = strconv.Itoa(pid)
+	}
+	return strings.Join(ss, ",")
+}
+
+func (pl *pidList) Set(s string) error {
+	parts := strings.Split(s, ",")
+	for _, part := range parts {
+		pid, err := strconv.Atoi(part)
+		if err != nil {
+			return fmt.Errorf("invalid pid list component %q, expected an integer", part)
+		}
+		*pl = append(*pl, pid)
+	}
+	return nil
+}
+
 func main() {
 	var (
 		interval    = flag.Duration("i", 200*time.Millisecond, "duration between measurements")
-		pidList     = flag.String("p", "", "Comma separated PID list to profile")
 		sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
+		pids        pidList
 	)
-
+	flag.Var(&pids, "p", "Comma separated PID list to profile")
 	flag.Parse()
 
-	pidStrings := strings.Split(*pidList, ",")
-	pids := make([]int, len(pidStrings))
-
-	for i, pidString := range pidStrings {
-		pid, err := strconv.Atoi(pidString)
-
-		if err != nil {
-			panic(err)
-		}
-
-		pids[i] = pid
+	if len(pids) == 0 {
+		fmt.Fprintf(os.Stderr, "no pids provided")
+		os.Exit(1)
 	}
 
 	procStats := cpustat.ProcStats{}
