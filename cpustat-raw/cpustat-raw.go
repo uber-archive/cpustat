@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -37,6 +38,12 @@ func (pl *pidList) Set(s string) error {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func run() error {
 	var (
 		interval    = flag.Duration("i", 200*time.Millisecond, "duration between measurements")
 		sampleCount = flag.Uint("n", 0, "Maximum number of samples to capture")
@@ -72,7 +79,7 @@ func main() {
 		}
 	}
 
-	fmt.Printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+	if _, err := fmt.Printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
 		"pid",
 		"time",
 		"proc.utime",
@@ -83,7 +90,9 @@ func main() {
 		"proc.rss",
 		"proc.guesttime",
 		"proc.cguesttime",
-	)
+	); err != nil {
+		return err
+	}
 
 	for procStatsReaderCount > 0 && samplesRemaining != 0 {
 		startOfRead := time.Now()
@@ -100,7 +109,7 @@ func main() {
 				continue
 			}
 
-			fmt.Printf(
+			if _, err := fmt.Printf(
 				"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
 				procStatsReader.PID,
 				procStats.CaptureTime.UnixNano()/1e6,
@@ -112,7 +121,9 @@ func main() {
 				procStats.Rss,
 				procStats.Guesttime,
 				procStats.Cguesttime,
-			)
+			); err != nil {
+				return err
+			}
 		}
 
 		if samplesRemaining > 0 {
@@ -126,4 +137,6 @@ func main() {
 			}
 		}
 	}
+
+	return nil
 }
