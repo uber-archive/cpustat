@@ -103,9 +103,6 @@ func run() error {
 		_, _ = bufw.WriteString(part)
 	}
 	_, _ = bufw.WriteRune('\n')
-	if err := bufw.Flush(); err != nil {
-		return err
-	}
 
 	for procStatsReaderCount > 0 && samplesRemaining != 0 {
 		startOfRead := time.Now()
@@ -159,5 +156,5 @@ func run() error {
 		}
 	}
 
-	return nil
+	return bufw.Flush()
 }
