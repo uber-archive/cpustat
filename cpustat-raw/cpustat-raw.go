@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"log"
@@ -79,7 +80,12 @@ func run() error {
 		}
 	}
 
-	if _, err := fmt.Printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+	var (
+		bufw = bufio.NewWriterSize(os.Stdout, 4096) // output buffer
+		tmp  [256]byte                              // scratch space for marshaling integers
+	)
+
+	for i, part := range []string{
 		"pid",
 		"time",
 		"proc.utime",
@@ -90,7 +96,14 @@ func run() error {
 		"proc.rss",
 		"proc.guesttime",
 		"proc.cguesttime",
-	); err != nil {
+	} {
+		if i > 0 {
+			_, _ = bufw.WriteRune(',')
+		}
+		_, _ = bufw.WriteString(part)
+	}
+	_, _ = bufw.WriteRune('\n')
+	if err := bufw.Flush(); err != nil {
 		return err
 	}
 
@@ -109,19 +122,27 @@ func run() error {
 				continue
 			}
 
-			if _, err := fmt.Printf(
-				"%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",
-				procStatsReader.PID,
-				procStats.CaptureTime.UnixNano()/1e6,
-				procStats.Utime,
-				procStats.Stime,
-				procStats.Cutime,
-				procStats.Cstime,
-				procStats.Numthreads,
-				procStats.Rss,
-				procStats.Guesttime,
-				procStats.Cguesttime,
-			); err != nil {
+			_, _ = bufw.Write(strconv.AppendInt(tmp[:], int64(procStatsReader.PID), 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendInt(tmp[:], procStats.CaptureTime.UnixNano()/1e6, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Utime, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Stime, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Cutime, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Cstime, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Numthreads, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Rss, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Guesttime, 10))
+			_, _ = bufw.WriteRune(',')
+			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Cguesttime, 10))
+			_, _ = bufw.WriteRune('\n')
+			if err := bufw.Flush(); err != nil {
 				return err
 			}
 		}
