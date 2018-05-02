@@ -142,9 +142,9 @@ func run() error {
 			_, _ = bufw.WriteRune(',')
 			_, _ = bufw.Write(strconv.AppendUint(tmp[:], procStats.Cguesttime, 10))
 			_, _ = bufw.WriteRune('\n')
-			if err := bufw.Flush(); err != nil {
-				return err
-			}
+		}
+		if err := bufw.Flush(); err != nil {
+			return err
 		}
 
 		if samplesRemaining > 0 {
