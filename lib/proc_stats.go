@@ -181,18 +181,22 @@ func ProcStatsReader(pids Pidlist, filter Filters, cur *ProcSampleList, infoMap 
 
 		sample := &cur.Samples[sampleNum]
 		sample.Pid = pid
-		sample.Proc.CaptureTime = time.Now()
-		sample.Proc.Utime = ReadUInt(parts[13])
-		sample.Proc.Stime = ReadUInt(parts[14])
-		sample.Proc.Cutime = ReadUInt(parts[15])
-		sample.Proc.Cstime = ReadUInt(parts[16])
-		sample.Proc.Numthreads = ReadUInt(parts[19])
-		sample.Proc.Rss = ReadUInt(parts[23])
-		sample.Proc.Guesttime = ReadUInt(parts[42])
-		sample.Proc.Cguesttime = ReadUInt(parts[43])
+		procStatsReaderFromParts(&sample.Proc, parts)
 		sampleNum++
 	}
 	cur.Len = uint32(sampleNum)
+}
+
+func procStatsReaderFromParts(stats *ProcStats, parts []string) {
+	stats.CaptureTime = time.Now()
+	stats.Utime = ReadUInt(parts[13])
+	stats.Stime = ReadUInt(parts[14])
+	stats.Cutime = ReadUInt(parts[15])
+	stats.Cstime = ReadUInt(parts[16])
+	stats.Numthreads = ReadUInt(parts[19])
+	stats.Rss = ReadUInt(parts[23])
+	stats.Guesttime = ReadUInt(parts[42])
+	stats.Cguesttime = ReadUInt(parts[43])
 }
 
 // ProcStatsRecord computes the delta between the Proc elements of two ProcSampleLists
